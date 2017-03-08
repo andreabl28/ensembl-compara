@@ -57,7 +57,7 @@ sub store {
     #
     #Find unique constrained_element_id by using a temporary table with an auto_increment column
     #
-    my $ce_id_sql = "INSERT INTO constrained_element_production (constrained_element_id) VALUES (\"NULL\")";
+    my $ce_id_sql = "INSERT INTO constrained_element_production () VALUES ()";
     my $ce_id_sth = $self->prepare($ce_id_sql);
 
     my $constrained_element_sql = qq{INSERT INTO constrained_element (
@@ -82,7 +82,7 @@ sub store {
 	}
 
 	foreach my $constrained_element (@{$constrained_element_group}) {
-            assert_ref($constrained_element, 'Bio::EnsEMBL::Compara::ConstrainedElement');
+            assert_ref($constrained_element, 'Bio::EnsEMBL::Compara::ConstrainedElement', 'constrained_element');
 	    $constrained_element_sth->execute(
 					      $constrained_element_id,
 					      $constrained_element->reference_dnafrag_id,

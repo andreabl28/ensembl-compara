@@ -180,7 +180,7 @@ our $config = {
             },
             {
                 description => 'All the seq_members should have a genome_db_id',
-                query => 'SELECT seq_member_id FROM seq_member WHERE genome_db_id IS NULL',
+                query => 'SELECT seq_member_id FROM seq_member WHERE genome_db_id IS NULL AND source_name NOT LIKE "Uniprot%"',
             },
         ],
     },
@@ -189,7 +189,7 @@ our $config = {
     stable_id_mapping => {
         tests => [
             {
-                description => 'There are stable IDs coming from at least 2 releases',
+                description => 'There are stable IDs coming from at least 2 releases (Have you configured "mapping_db" correctly ?)',
                 query => 'SELECT DISTINCT LEFT(stable_id, 9) AS prefix FROM gene_tree_root WHERE stable_id IS NOT NULL',
                 expected_size => '>= 2',
             },
@@ -310,7 +310,7 @@ our $config = {
         tests => [
             {
                 description => 'Checks that the gene tree is binary (and minimized)',
-                query => 'SELECT gtn1.node_id FROM gene_tree_root gtr JOIN gene_tree_node gtn1 ON gtr.root_id=gtn1.node_id JOIN gene_tree_node gtn2 ON gtn1.node_id = gtn2.parent_id WHERE gtn1.root_id = #gene_tree_id# GROUP BY clusterset_id, gtn1.root_id, gtn1.node_id HAVING COUNT(*) != IF(gtn1.node_id!=gtn1.root_id OR clusterset_id="default" OR clusterset_id LIKE "nj%" OR clusterset_id LIKE "phyml%" OR clusterset_id LIKE "rax%" OR clusterset_id LIKE "pg%",2,3)',
+                query => 'SELECT gtn1.node_id FROM gene_tree_root gtr JOIN gene_tree_node gtn1 ON gtr.root_id=gtn1.node_id JOIN gene_tree_node gtn2 ON gtn1.node_id = gtn2.parent_id WHERE gtn1.root_id = #gene_tree_id# GROUP BY clusterset_id, gtn1.root_id, gtn1.node_id HAVING COUNT(*) != IF(gtn1.node_id!=gtn1.root_id OR clusterset_id IN ("default","murinae") OR clusterset_id LIKE "nj%" OR clusterset_id LIKE "phyml%" OR clusterset_id LIKE "rax%" OR clusterset_id LIKE "pg%",2,3)',
             },
 
             {
@@ -442,7 +442,7 @@ our $config = {
 
             {
                 description => 'The "gene_count" tags of sub-trees must sum-up to their super-tree\'s gene count',
-                query => 'SELECT gtr1.root_id, COUNT(*), gtra1.gene_count, SUM(gtra2.gene_count) FROM (gene_tree_root gtr1 JOIN gene_tree_node gtn1 USING (root_id) JOIN gene_tree_root_attr gtra1 USING (root_id)) JOIN gene_tree_node gtn2 ON gtn2.parent_id = gtn1.node_id AND gtn2.root_id != gtn1.root_id JOIN gene_tree_root_attr gtra2 ON gtra2.root_id=gtn2.root_id WHERE tree_type = "supertree" AND clusterset_id = "default" GROUP BY gtr1.root_id HAVING gtra1.gene_count != SUM(gtra2.gene_count)',
+                query => 'SELECT gtr1.root_id, COUNT(*), gtra1.gene_count, SUM(gtra2.gene_count) FROM (gene_tree_root gtr1 JOIN gene_tree_node gtn1 USING (root_id) JOIN gene_tree_root_attr gtra1 USING (root_id)) JOIN gene_tree_node gtn2 ON gtn2.parent_id = gtn1.node_id AND gtn2.root_id != gtn1.root_id JOIN gene_tree_root_attr gtra2 ON gtra2.root_id=gtn2.root_id WHERE tree_type = "supertree" AND clusterset_id IN ("default","murinae") GROUP BY gtr1.root_id HAVING gtra1.gene_count != SUM(gtra2.gene_count)',
             },
         ],
     },

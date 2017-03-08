@@ -51,6 +51,8 @@ use Bio::EnsEMBL::Compara::Production::EPOanchors::AnchorAlign;
 use Bio::EnsEMBL::Utils::Exception qw(throw);
 use Bio::EnsEMBL::Utils::Scalar qw(assert_ref);
 
+use Bio::EnsEMBL::Compara::Utils::CopyData qw(:insert);
+
 use base qw(Bio::EnsEMBL::Compara::DBSQL::BaseAdaptor);
 
 
@@ -110,37 +112,13 @@ sub store {
 sub store_mapping_hits {
 	my $self = shift;
 	my $batch_records = shift;
-	throw() unless($batch_records);
-	
-	my $query = qq{
-	INSERT INTO anchor_align (method_link_species_set_id, anchor_id, dnafrag_id, dnafrag_start,	
-	dnafrag_end, dnafrag_strand, score, num_of_organisms, num_of_sequences, evalue)
-	VALUES (?,?,?,?,?,?,?,?,?,?)};
-
-	my $sth = $self->prepare($query);
-	foreach my $anchor_hits( @$batch_records ) {
-		$sth->execute( @{ $anchor_hits } );
-	}	
-	$sth->finish;
-	return 1;
+	return bulk_insert($self->dbc, 'anchor_align', $batch_records, [qw(method_link_species_set_id anchor_id dnafrag_id dnafrag_start dnafrag_end dnafrag_strand score num_of_organisms num_of_sequences evalue)]);
 }
 
 sub store_exonerate_hits {
         my $self = shift;
         my $batch_records = shift;
-        throw() unless($batch_records);
-    
-        my $query = qq{ 
-        INSERT INTO anchor_align (method_link_species_set_id, anchor_id, dnafrag_id, dnafrag_start,     
-        dnafrag_end, dnafrag_strand, score, num_of_organisms, num_of_sequences)
-        VALUES (?,?,?,?,?,?,?,?,?)};
-
-        my $sth = $self->prepare($query);
-        foreach my $row(@$batch_records) {
-                $sth->execute( @$row );
-        }    
-        $sth->finish;
-        return 1;
+        return bulk_insert($self->dbc, 'anchor_align', $batch_records, [qw(method_link_species_set_id anchor_id dnafrag_id dnafrag_start dnafrag_end dnafrag_strand score num_of_organisms num_of_sequences)]);
 }
 
 

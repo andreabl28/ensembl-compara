@@ -36,7 +36,6 @@ my $genomic_align_block;
 my $all_genomic_aligns;
 my $genomic_align_adaptor = $compara_db->get_GenomicAlignAdaptor();
 my $dnafrag_adaptor = $compara_db->get_DnaFragAdaptor();
-my $genomeDB_adaptor = $compara_db->get_GenomeDBAdaptor();
 
 my $sth;
 my ($ga_id, $gab_id, $mlss_id, $df_id, $dfs, $dfe, $cg, $visible, $node_id);
@@ -117,7 +116,13 @@ subtest "Test Bio::EnsEMBL::Compara::DBSQL::GenomicAlignAdaptor::fetch_all_by_Ge
     
     #fetch_all_by_genomic_align_block_id
     $all_genomic_aligns = $genomic_align_adaptor->fetch_all_by_genomic_align_block_id($gab_id1);
-    is(scalar(@$all_genomic_aligns), 2, "fetch_all_by_genomic_align_block($gab_id1) should return 2 objects");
+    is(scalar(@$all_genomic_aligns), 2, "fetch_all_by_genomic_align_block_id($gab_id1) should return 2 objects");
+    check_all_genomic_aligns($all_genomic_aligns);
+
+    #fetch_all_by_genomic_align_block_id with species_list
+    my $species_name = $all_genomic_aligns->[0]->genome_db->name;
+    $all_genomic_aligns = $genomic_align_adaptor->fetch_all_by_genomic_align_block_id($gab_id1, [$species_name]);
+    is(scalar(@$all_genomic_aligns), 1, "fetch_all_by_genomic_align_block_id($gab_id1, [$species_name]) should return 1 object");
     check_all_genomic_aligns($all_genomic_aligns);
     
     #Bio::EnsEMBL::Compara::DBSQL::GenomicAlignAdaptor::fetch_all_by_GenomicAlignBlock
@@ -126,7 +131,7 @@ subtest "Test Bio::EnsEMBL::Compara::DBSQL::GenomicAlignAdaptor::fetch_all_by_Ge
                                                                         -adaptor=>$compara_db->get_GenomicAlignBlockAdaptor
                                                                        );
     $all_genomic_aligns = $genomic_align_adaptor->fetch_all_by_GenomicAlignBlock($genomic_align_block);
-    is(scalar(@$all_genomic_aligns), 2, "fetch_all_by_genomic_align_block(\$genomic_aling_block) should return 2 objects");
+    is(scalar(@$all_genomic_aligns), 2, "fetch_all_by_GenomicAlignBlock(\$genomic_aling_block) should return 2 objects");
     check_all_genomic_aligns($all_genomic_aligns);
 
     done_testing();
@@ -163,6 +168,12 @@ subtest "Test Bio::EnsEMBL::Compara::DBSQL::GenomicAlignAdaptor::retrieve_all_di
     is($attribs->node_id, $node_id, "node_id");
 
     done_testing();
+};
+
+subtest "Test Bio::EnsEMBL::Compara::DBSQL::GenomicAlignAdaptor count_by_mlss_id($mlss_id1) method" , sub {
+
+    my $c = $genomic_align_adaptor->count_by_mlss_id($mlss_id1);
+    is($c, 728, 'count_by_mlss_id');
 };
 
 subtest "Test Bio::EnsEMBL::Compara::DBSQL::GenomicAlignAdaptor::store", sub {

@@ -170,6 +170,8 @@ sub resource_classes {
     return {
         %{$self->SUPER::resource_classes},  # inherit 'default' from the parent class
 
+        # Note that these descriptions include "database tokens" which are only provided by Sanger Systems
+
         'urgent'       => { 'LSF' => '-q yesterday' },
         'RegBlast'    => { 'LSF' => [ '-C0 -M'.$self->o('blast_gigs').'000 -q normal -R"select['.$self->o('dbresource').'<'.$self->o('blast_capacity').' && mem>'.$self->o('blast_gigs').'000] rusage['.$self->o('dbresource').'=10:duration=10:decay=1, mem='.$self->o('blast_gigs').'000]"', '-lifespan 360' ]  },
         'LongBlastHM'  => { 'LSF' => [ '-C0 -M'.$self->o('blast_hm_gigs').'000 -q long -R"select['.$self->o('dbresource').'<'.$self->o('blast_capacity').' && mem>'.$self->o('blast_hm_gigs').'000] rusage['.$self->o('dbresource').'=10:duration=10:decay=1, mem='.$self->o('blast_hm_gigs').'000]"', '-lifespan 1440' ]  },
@@ -254,6 +256,7 @@ sub pipeline_analyses {
                 'include_nonreference'  => 1,
                 'include_patches'       => 1,
                 'include_reference'     => 0,
+                'production_db_url'     => $self->o('production_db_url'),
             },
             -rc_name => '2GigMem',
         },
@@ -539,12 +542,14 @@ sub pipeline_analyses {
                 'inputquery'            => 'SELECT family_id, COUNT(*) AS fam_gene_count FROM family_member GROUP BY family_id HAVING count(*)>1',
                 'max_genes_lowmem_mafft'        => $self->o('max_genes_lowmem_mafft'),
                 'max_genes_singlethread_mafft'  => $self->o('max_genes_singlethread_mafft'),
+                'max_genes_computable_mafft'    => $self->o('max_genes_computable_mafft'),
             },
             -hive_capacity => 20, # to enable parallel branches
             -flow_into => {
                 '2->A' => WHEN(
                     '#fam_gene_count# <= #max_genes_lowmem_mafft#' => 'mafft_main',
-                    '#fam_gene_count# > #max_genes_singlethread_mafft#' => 'mafft_huge',
+                    '(#fam_gene_count# > #max_genes_singlethread_mafft#) && (#fam_gene_count# <= #max_genes_computable_mafft#)' => 'mafft_huge',
+                    '#fam_gene_count# > #max_genes_computable_mafft#' => 'trim_family',
                     ELSE 'mafft_big',
                 ),
                 'A->1' => {
@@ -599,6 +604,32 @@ sub pipeline_analyses {
                 1  => [ 'consensifier_himem' ],
             },
             -rc_name => 'HugeMafft_multi_core',
+        },
+
+        {   -logic_name         => 'trim_family',
+            -module             => 'Bio::EnsEMBL::Hive::RunnableDB::SqlCmd',
+            -parameters => {
+                'member_sources_to_delete'  => '"Uniprot/SPTREMBL"',
+                'trim_to_this_taxon_id'     => 7711,    # Chordates
+                'sql'   => [
+                    'DELETE family_member
+                    FROM
+                        family_member
+                            JOIN
+                        seq_member sm USING (seq_member_id)
+                            JOIN
+                        ncbi_taxa_node ntn1 USING (taxon_id)
+                            JOIN
+                        ncbi_taxa_node ntn2
+                    WHERE
+                        family_id = #family_id# AND ntn2.taxon_id = #trim_to_this_taxon_id#
+                            AND NOT (ntn2.left_index <= ntn1.left_index AND ntn2.right_index >= ntn1.left_index)
+                            AND source_name IN (#member_sources_to_delete#);'
+                ],
+            },
+            -flow_into => {
+                1  => [ 'mafft_huge' ],
+            },
         },
 
         {   -logic_name => 'find_update_singleton_cigars',      # example of an SQL-session within a job (temporary table created, used and discarded)
@@ -667,7 +698,7 @@ sub pipeline_analyses {
         {   -logic_name => 'warehouse_working_directory',
             -module     => 'Bio::EnsEMBL::Hive::RunnableDB::SystemCmd',
             -parameters => {
-                'cmd'   => 'cp -r #work_dir# #warehouse_dir#',
+                'cmd'   => 'become -- compara_ensembl cp -r #work_dir# #warehouse_dir#',
             },
             -rc_name => 'urgent',
             -flow_into => [ 'notify_pipeline_completed' ],

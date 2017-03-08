@@ -20,22 +20,12 @@ limitations under the License.
 =pod
 
 =head1 NAME
-	
-	Bio::EnsEMBL::Compara::RunnableDB::OrthologQM::ResetMLSS
-
-=head1 SYNOPSIS
-
-	Removes all scores in the ortholog_quality table assosiated with the
-	list of input MLSS
-
-=head1 DESCRIPTION
-
-	Inputs:
-	aln_mlss_ids	arrayref of method_link_species_set IDs to be removed
+    
+    Bio::EnsEMBL::Compara::RunnableDB::OrthologQM::ReuseWGAScore
 
 =cut
 
-package Bio::EnsEMBL::Compara::RunnableDB::OrthologQM::ResetMLSS;
+package Bio::EnsEMBL::Compara::RunnableDB::OrthologQM::ReuseWGAScore;
 
 use strict;
 use warnings;
@@ -43,21 +33,14 @@ use Data::Dumper;
 
 use base ('Bio::EnsEMBL::Compara::RunnableDB::BaseRunnable');
 
-sub run {
-	my $self = shift;
+use Bio::EnsEMBL::Registry;
 
-	my $mlss_ids = $self->param('aln_mlss_ids');
+sub write_output {
+    my $self = shift;
 
-	if ( !defined $mlss_ids || scalar( @{ $mlss_ids} ) < 1 ) {
-		$self->warning("No MLSSs reset");
-		return;
-	}
+    my $homo_adaptor = $self->compara_dba->get_HomologyAdaptor;
 
-	my $sql = 'DELETE FROM ortholog_quality WHERE alignment_mlss = ?';
-	my $sth = $self->db->dbc->prepare($sql);
-	foreach my $id ( @{ $mlss_ids } ){
-		$sth->execute($id);
-	}
+    $homo_adaptor->update_wga_coverage( $self->param_required('homology_id'), $self->param_required('prev_wga_score') );
 }
 
 1;

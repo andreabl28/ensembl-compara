@@ -17,17 +17,30 @@ limitations under the License.
 
 =cut
 
-package Bio::EnsEMBL::Compara::RunnableDB::OrthologQM::ExonFunnel;
+=pod
+
+=head1 NAME
+	
+	Bio::EnsEMBL::Compara::RunnableDB::OrthologQM::CopyFunnel
+
+=head1 SYNOPSIS
+
+	
+
+=cut
+
+package Bio::EnsEMBL::Compara::RunnableDB::OrthologQM::CopyFunnel;
 
 use strict;
 use warnings;
+use Data::Dumper;
 
 use base ('Bio::EnsEMBL::Compara::RunnableDB::BaseRunnable');
 
 sub write_output {
 	my $self = shift;
 
-	$self->dataflow_output_id( $self->param('genome_db_pairs'), 1 ); # to prepare_mlss
+	$self->dataflow_output_id( $self->param_required('alignment_mlsses'), 2 ); # to prepare_orthologs
 }
 
 1;

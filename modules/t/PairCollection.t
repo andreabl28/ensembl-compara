@@ -69,21 +69,6 @@ my $exp_dataflow = [
 	}
 ];
 
-my $exp_dataflow2 = [
-          {
-            'genome_db_id' => '87'
-          },
-          {
-            'genome_db_id' => '111'
-          },
-          {
-            'genome_db_id' => '112'
-          },
-          {
-            'genome_db_id' => '142'
-          }
-        ];
-
 standaloneJob(
 	'Bio::EnsEMBL::Compara::RunnableDB::OrthologQM::PairCollection', # module
 	{ # input param hash
@@ -93,18 +78,8 @@ standaloneJob(
 	[ # list of events to test for (just 1 event in this case)
 		[
 			'DATAFLOW',
-			$exp_dataflow2,
+			$exp_dataflow,
 			2
-		],
-		[ # start event
-			'DATAFLOW', # event to test for (could be WARNING)
-			{ 'genome_db_pairs' => $exp_dataflow}, # expected data flowed out
-			1 # dataflow branch
-		], # end event
-		[
-			'DATAFLOW',
-			{ 'aln_mlss_ids' => undef },
-			3
 		],
 	]
 );
@@ -119,18 +94,8 @@ standaloneJob(
 	[ # list of events to test for (just 1 event in this case)
 		[
 			'DATAFLOW',
-			$exp_dataflow2,
+			$exp_dataflow,
 			2
-		],
-		[ # start event
-			'DATAFLOW', # event to test for (could be WARNING)
-			{ 'genome_db_pairs' => $exp_dataflow}, # expected data flowed out
-			1 # dataflow branch
-		], # end event
-		[
-			'DATAFLOW',
-			{ 'aln_mlss_ids' => undef },
-			3
 		],
 	]
 );
@@ -164,18 +129,8 @@ standaloneJob(
 	[ # list of events to test for (just 1 event in this case)
 		[
 			'DATAFLOW',
-			$exp_dataflow2,
+			$exp_dataflow,
 			2
-		],
-		[ # start event
-			'DATAFLOW', # event to test for (could be WARNING)
-			{ 'genome_db_pairs' => $exp_dataflow}, # expected data flowed out
-			1 # dataflow branch
-		], # end event
-		[
-			'DATAFLOW',
-			{ 'aln_mlss_ids' => undef },
-			3
 		],
 	]
 );
@@ -183,7 +138,6 @@ standaloneJob(
 
 # Test pair of species #
 $exp_dataflow = [ { 'species1_id' => '87', 'species2_id' => '111' } ];
-$exp_dataflow2 = [ { 'genome_db_id' => '87' }, { 'genome_db_id' => '111' } ];
 
 standaloneJob(
 	'Bio::EnsEMBL::Compara::RunnableDB::OrthologQM::PairCollection', # module
@@ -195,18 +149,8 @@ standaloneJob(
 	[ # list of events to test for (just 1 event in this case)
 		[
 			'DATAFLOW',
-			$exp_dataflow2,
+			$exp_dataflow,
 			2
-		],
-		[ # start event
-			'DATAFLOW', # event to test for (could be WARNING)
-			{ 'genome_db_pairs' => $exp_dataflow}, # expected data flowed out
-			1 # dataflow branch
-		], # end event
-		[
-			'DATAFLOW',
-			{ 'aln_mlss_ids' => undef },
-			3
 		],
 	]
 );

@@ -97,6 +97,7 @@ sub default_options {
         # Thresholds for Mafft resource-classes
         'max_genes_lowmem_mafft'        =>  8000,
         'max_genes_singlethread_mafft'  => 50000,
+        'max_genes_computable_mafft'    => 300000,
 
         # resource requirements:
         'blast_minibatch_size'    => 25,                         # we want to reach the 1hr average runtime per minibatch
@@ -119,6 +120,9 @@ sub default_options {
 
         # Protein Tree database
         'protein_trees_db' => 'mysql://ensadmin:' . $self->o('password') . '@compara4/wa2_protein_trees_87',
+
+        # Production database (for the biotypes)
+        'production_db_url'     => 'mysql://ensro@ens-staging/ensembl_production',
 
         # used by the StableIdMapper as the location of the master 'mapping_session' table:
         'master_db' => 'mysql://ensadmin:' . $self->o('password') . '@compara1/mm14_ensembl_compara_master', };

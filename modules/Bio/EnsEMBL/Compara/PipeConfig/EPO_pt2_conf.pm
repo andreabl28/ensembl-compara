@@ -84,11 +84,12 @@ sub default_options {
 	'compara_anchor_db' => 'mysql://ensro@compara3/sf5_TEST_gen_anchors_mammals_cat_100',
 
 	'mapping_exe' => "/software/ensembl/compara/exonerate/exonerate",
+        'ortheus_c_exe' => '/software/ensembl/compara/OrtheusC/bin/OrtheusC',
 	'mapping_params'    => { bestn=>11, gappedextension=>"no", softmasktarget=>"no", percent=>75, showalignment=>"no", model=>"affine:local", },
 	 # place to dump the genome sequences
 	'seq_dump_loc' => '/data/blastdb/Ensembl/' . 'compara_genomes_test_' . $self->o('ensembl_release'),
 	 # dont dump the MT sequence for mapping
-	'dont_dump_MT' => 1,
+	'only_nuclear_genome' => 1,
 	 # batch size of grouped anchors to map
 	'anchor_batch_size' => 10,
 	 # max number of sequences to allow in an anchor
@@ -255,7 +256,7 @@ sub pipeline_analyses {
 	    {	-logic_name     => 'dump_genome_sequence',
 		-module         => 'Bio::EnsEMBL::Compara::Production::EPOanchors::DumpGenomeSequence',
 		-parameters => {
-			'dont_dump_MT' => $self->o('dont_dump_MT'),
+                        'only_nuclear_genome' => $self->o('only_nuclear_genome'),
 		},
 		-flow_into => [ 'map_anchors_factory' ],
 		-rc_name => 'mem7500',
@@ -311,6 +312,7 @@ sub pipeline_analyses {
 		-module     => 'Bio::EnsEMBL::Compara::Production::EPOanchors::TrimAnchorAlign',
 		-parameters => {
 				'method_link_species_set_id' => '#epo_mlss_id#',
+                                'ortheus_c_exe' => $self->o('ortheus_c_exe'),
 			},
                 -flow_into => {
                     -1 => 'trim_anchor_align_himem',
@@ -323,6 +325,7 @@ sub pipeline_analyses {
 		-module     => 'Bio::EnsEMBL::Compara::Production::EPOanchors::TrimAnchorAlign',
 		-parameters => {
 				'method_link_species_set_id' => '#epo_mlss_id#',
+                                'ortheus_c_exe' => $self->o('ortheus_c_exe'),
 			},
 		-hive_capacity => 150,
                 -rc_name => 'mem3500',

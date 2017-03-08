@@ -83,7 +83,7 @@ sub fetch_input {
     my @all_slices;
     $genome_db->db_adaptor->dbc->prevent_disconnect( sub {
             foreach my $ref_dnafrag( @$reference_dnafrags ) {
-                next if (($ref_dnafrag->dna_type eq 'MT') and $self->param('dont_dump_MT'));
+                next if (($ref_dnafrag->cellular_component ne 'NUC') and $self->param('only_nuclear_genome'));
                 $serializer->print_Seq($ref_dnafrag->slice);
             }
         });

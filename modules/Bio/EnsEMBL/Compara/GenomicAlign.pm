@@ -275,10 +275,10 @@ sub new {
 
 =head2 copy (CONSTRUCTOR)
 
-  Arg         : -none-
+  Arg [1]     : (optional) Instance to copy the fields to
   Example     : my $new_genomic_align = $genomic_align->copy();
   Description : Create a new object with the same attributes
-                as this one.
+                as this one, or top-up the given object.
   Returntype  : Bio::EnsEMBL::Compara::GenomicAlign (or subclassed) object
   Exceptions  :
   Status      : Stable
@@ -286,8 +286,8 @@ sub new {
 =cut
 
 sub copy {
-  my ($self) = @_;
-  my $new_copy = {};
+  my ($self, $new_copy) = @_;
+  $new_copy ||= {};
   bless $new_copy, ref($self);
 
   while (my ($key, $value) = each %$self) {
@@ -341,7 +341,7 @@ sub genomic_align_block {
 		  " genomic_align_block_id. If you want to override a".
 		  " Bio::EnsEMBL::Compara::GenomicAlign object, you can reset the ".
 		  "genomic_align_block_id using \$genomic_align->genomic_align_block_id(0)")
-	      if ($self->{'genomic_align_block'}->{'dbID'} != $self->{'genomic_align_block_id'});
+	      if ($self->{'genomic_align_block'}->{'dbID'} ne $self->{'genomic_align_block_id'});
 	} else {
 	    $self->{'genomic_align_block_id'} = $genomic_align_block->{'dbID'};
 	}
@@ -397,7 +397,7 @@ sub genomic_align_block_id {
 #       warning("Defining both genomic_align_block_id and genomic_align_block");
       throw("genomic_align_block_id does not match previously defined genomic_align_block object")
           if ($self->{'genomic_align_block'} and
-              $self->{'genomic_align_block'}->dbID != $self->{'genomic_align_block_id'});
+              $self->{'genomic_align_block'}->dbID ne $self->{'genomic_align_block_id'});
     }
   } elsif (!($self->{'genomic_align_block_id'})) {
     # Try to get the ID from other sources...

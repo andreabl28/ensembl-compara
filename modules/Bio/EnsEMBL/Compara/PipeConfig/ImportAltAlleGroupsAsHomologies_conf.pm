@@ -34,6 +34,9 @@ package Bio::EnsEMBL::Compara::PipeConfig::ImportAltAlleGroupsAsHomologies_conf;
 
 use strict;
 use warnings;
+
+use Bio::EnsEMBL::Compara::PipeConfig::Parts::ImportAltAlleGroupsAsHomologies;
+
 use base ('Bio::EnsEMBL::Hive::PipeConfig::EnsemblGeneric_conf');
 
 sub default_options {
@@ -41,15 +44,21 @@ sub default_options {
     return {
         %{$self->SUPER::default_options},
 
-        'host'            => 'compara5',    # where the pipeline database will be created
+        'host'            => 'mysql-ens-compara-prod-1',    # where the pipeline database will be created
+        'port'            => 4485,
 
-        'pipeline_name'   => 'homology_projections_'.$self->o('rel_with_suffix'),   # also used to differentiate submitted processes
+        'pipeline_name'   => 'alt_allele_import_'.$self->o('rel_with_suffix'),   # also used to differentiate submitted processes
 
         'reg_conf'        => $self->o('ensembl_cvs_root_dir')."/ensembl-compara/scripts/pipeline/production_reg_conf.pl",
 
+        # Production database (for the biotypes)
+        'production_db_url'     => 'mysql://ensro@mysql-ens-sta-1:4519/ensembl_production',
+
         #Pipeline capacities:
         'import_altalleles_as_homologies_capacity'  => '300',
-        'update_capacity'                           => '5',
+
+        #Software dependencies
+        'mafft_home'            => $self->o('ensembl_cellar').'/mafft/7.305/',
 
     };
 }
@@ -63,124 +72,39 @@ sub hive_meta_table {
 }
 
 
+sub pipeline_wide_parameters {
+    my ($self) = @_;
+    return {
+        %{$self->SUPER::pipeline_wide_parameters},          # here we inherit anything from the base class
+
+        'mafft_home'    => $self->o('mafft_home'),
+        'production_db_url' => $self->o('production_db_url'),
+    }
+}
+
 sub resource_classes {
     my ($self) = @_;
+    my $reg_requirement = '--reg_conf '.$self->o('reg_conf');
     return {
         %{$self->SUPER::resource_classes},  # inherit 'default' from the parent class
 
-        '500Mb_job'    => { 'LSF' => ['-C0 -M500 -R"select[mem>500] rusage[mem=500]"', '--reg_conf '.$self->o('reg_conf')], 'LOCAL' => ['', '--reg_conf '.$self->o('reg_conf')] },
-        'patch_import'  => { 'LSF' => ['-C0 -M250 -R"select[mem>250] rusage[mem=250]"', '--reg_conf '.$self->o('reg_conf')], 'LOCAL' => ['', '--reg_conf '.$self->o('reg_conf')] },
-        'patch_import_himem'  => { 'LSF' => ['-C0 -M500 -R"select[mem>500] rusage[mem=500]"', '--reg_conf '.$self->o('reg_conf')], 'LOCAL' => ['', '--reg_conf '.$self->o('reg_conf')] },
-        'default_w_reg' => { 'LSF' => ['', '--reg_conf '.$self->o('reg_conf')], 'LOCAL' => ['', '--reg_conf '.$self->o('reg_conf')] },
+        'patch_import'  => { 'LSF' => ['-C0 -M250 -R"select[mem>250] rusage[mem=250]"', $reg_requirement], 'LOCAL' => ['', $reg_requirement] },
+        'patch_import_himem'  => { 'LSF' => ['-C0 -M500 -R"select[mem>500] rusage[mem=500]"', $reg_requirement], 'LOCAL' => ['', $reg_requirement] },
+        'default_w_reg' => { 'LSF' => ['', $reg_requirement], 'LOCAL' => ['', $reg_requirement] },
     };
 }
 
 
 sub pipeline_analyses {
     my ($self) = @_;
-    return [
 
-        {   -logic_name => 'offset_tables',
-            -module     => 'Bio::EnsEMBL::Compara::RunnableDB::GeneTrees::OffsetTables',
-            -input_ids  => [ {
-                    'compara_db' => $self->o('compara_db'),
-                    'db_conn'    => '#compara_db#',
-                } ],
-            -parameters => {
-                'range_index'   => 5,
-            },
-            -flow_into => [ 'species_factory' ],
-        },
+    my $pipeline_analyses = Bio::EnsEMBL::Compara::PipeConfig::Parts::ImportAltAlleGroupsAsHomologies::pipeline_analyses_alt_alleles($self);
 
-        {
-            -logic_name => 'species_factory',
-            -module     => 'Bio::EnsEMBL::Compara::RunnableDB::GenomeDBFactory',
-            -flow_into => {
-                2   => [ 'altallegroup_factory' ],
-            },
-        },
+    $pipeline_analyses->[0]->{'-input_ids'} = [ {
+            'compara_db' => $self->o('compara_db'),
+        } ];
 
-        {
-            -logic_name => 'altallegroup_factory',
-            -module => 'Bio::EnsEMBL::Compara::RunnableDB::ObjectFactory',
-            -parameters => {
-                'call_list'     => [ 'compara_dba', 'get_GenomeDBAdaptor', ['fetch_by_dbID', '#genome_db_id#'], 'db_adaptor', 'get_AltAlleleGroupAdaptor', 'fetch_all' ],
-                'column_names2getters'  => { 'alt_allele_group_id' => 'dbID' },
-                'reg_conf'  => $self->o('reg_conf'),
-            },
-            -flow_into => {
-                '2->A' => [ 'import_altalleles_as_homologies' ],
-                'A->1' => [ 'update_member_display_labels' ],
-            },
-            -rc_name    => 'default_w_reg',
-        },
-
-
-        {   -logic_name => 'import_altalleles_as_homologies',
-            -module     => 'Bio::EnsEMBL::Compara::RunnableDB::ImportAltAlleGroupAsHomologies',
-            -hive_capacity => $self->o('import_altalleles_as_homologies_capacity'),
-            -parameters => {
-                'mafft_home' => '/software/ensembl/compara/mafft-7.113/',
-            },
-             -flow_into => {
-                           -1 => [ 'import_altalleles_as_homologies_himem' ],  # MEMLIMIT
-                           },
-            -rc_name    => 'patch_import',
-        },
-
-        {   -logic_name => 'import_altalleles_as_homologies_himem',
-            -module     => 'Bio::EnsEMBL::Compara::RunnableDB::ImportAltAlleGroupAsHomologies',
-            -hive_capacity => $self->o('import_altalleles_as_homologies_capacity'),
-            -parameters => {
-                'mafft_home' => '/software/ensembl/compara/mafft-7.113/',
-            },
-            -rc_name    => 'patch_import_himem',
-        },
-
-        {
-            -logic_name => 'update_member_display_labels',
-            -module => 'Bio::EnsEMBL::Compara::RunnableDB::MemberDisplayLabelUpdater',
-            -analysis_capacity => $self->o('update_capacity'),
-            -parameters => {
-                'die_if_no_core_adaptor'  => 1,
-                'replace'                 => 1,
-                'mode'                    => 'display_label',
-                'source_name'             => 'ENSEMBLGENE',
-                'genome_db_ids'           => [ '#genome_db_id#' ],
-            },
-            -flow_into => [ 'update_seq_member_display_labels' ],
-            -rc_name => '500Mb_job',
-        },
-
-        {
-            -logic_name => 'update_seq_member_display_labels',
-            -module => 'Bio::EnsEMBL::Compara::RunnableDB::MemberDisplayLabelUpdater',
-            -analysis_capacity => $self->o('update_capacity'),
-            -parameters => {
-                'die_if_no_core_adaptor'  => 1,
-                'replace'                 => 1,
-                'mode'                    => 'display_label',
-                'source_name'             => 'ENSEMBLPEP',
-                'genome_db_ids'           => [ '#genome_db_id#' ],
-            },
-            -flow_into => [ 'update_member_descriptions' ],
-            -rc_name => '500Mb_job',
-        },
-
-        {
-            -logic_name => 'update_member_descriptions',
-            -module => 'Bio::EnsEMBL::Compara::RunnableDB::MemberDisplayLabelUpdater',
-            -analysis_capacity => $self->o('update_capacity'),
-            -parameters => {
-                'die_if_no_core_adaptor'  => 1,
-                'replace'                 => 1,
-                'mode'                    => 'description',
-                'genome_db_ids'           => [ '#genome_db_id#' ],
-            },
-            -rc_name => '500Mb_job',
-        },
-
-    ];
+    return $pipeline_analyses;
 }
 
 1;

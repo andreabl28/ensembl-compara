@@ -195,7 +195,7 @@ sub store_nodes_rec {
 sub store_node {
     my ($self, $node) = @_;
 
-    assert_ref($node, 'Bio::EnsEMBL::Compara::GeneTreeNode');
+    assert_ref($node, 'Bio::EnsEMBL::Compara::GeneTreeNode', 'node');
 
     if (not($node->adaptor and $node->adaptor->isa('Bio::EnsEMBL::Compara::DBSQL::GeneTreeNodeAdaptor') and $node->adaptor eq $self)) {
         my $sth = $self->prepare("INSERT INTO gene_tree_node VALUES ()");
@@ -233,8 +233,8 @@ sub store_node {
 sub merge_nodes {
   my ($self, $node1, $node2) = @_;
 
-  assert_ref($node1, 'Bio::EnsEMBL::Compara::GeneTreeNode');
-  assert_ref($node2, 'Bio::EnsEMBL::Compara::GeneTreeNode');
+  assert_ref($node1, 'Bio::EnsEMBL::Compara::GeneTreeNode', 'node1');
+  assert_ref($node2, 'Bio::EnsEMBL::Compara::GeneTreeNode', 'node2');
 
   # printf("MERGE children from parent %d => %d\n", $node2->node_id, $node1->node_id);
 
@@ -264,8 +264,6 @@ sub delete_node {
   my $node_id = $node->node_id;
   $self->dbc->do("UPDATE gene_tree_node dn, gene_tree_node n SET ".
             "n.parent_id = dn.parent_id WHERE n.parent_id=dn.node_id AND dn.node_id=$node_id");
-  $self->dbc->do("DELETE from gene_tree_node_tag    WHERE node_id = $node_id");
-  $self->dbc->do("DELETE from gene_tree_node_attr   WHERE node_id = $node_id");
   $self->dbc->do("UPDATE gene_tree_node SET root_id = NULL WHERE node_id = $node_id");
   $self->dbc->do("DELETE homology_member from homology_member JOIN homology using(homology_id) WHERE gene_tree_node_id = $node_id");
   $self->dbc->do("DELETE from homology WHERE gene_tree_node_id = $node_id");
@@ -274,10 +272,11 @@ sub delete_node {
   if ($node_id && (!$node->{_root_id} || ($node_id == $node->{_root_id}))) {
     $self->dbc->do("DELETE FROM gene_tree_root_attr WHERE root_id = $node_id");
     $self->dbc->do("DELETE FROM gene_tree_root_tag WHERE root_id = $node_id");
+    $self->dbc->do("DELETE FROM gene_tree_object_store WHERE root_id = $node_id");
     $self->dbc->do("DELETE FROM gene_tree_root WHERE root_id = $node_id");
   }
 
-  $self->dbc->do("DELETE from gene_tree_node   WHERE node_id = $node_id");
+  $self->delete_flattened_leaf($node);
 }
 
 sub delete_nodes_not_in_tree
@@ -286,7 +285,7 @@ sub delete_nodes_not_in_tree
   my $tree = shift;
 
   # NOTE: $tree is assumed to be a root node
-  assert_ref($tree, 'Bio::EnsEMBL::Compara::GeneTreeNode');
+  assert_ref($tree, 'Bio::EnsEMBL::Compara::GeneTreeNode', 'tree');
   my %node_hash;
   foreach my $node (@{$tree->get_all_nodes}) {
     $node_hash{$node->node_id} = $node;

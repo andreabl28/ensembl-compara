@@ -68,12 +68,6 @@ use warnings;
 
 use Bio::EnsEMBL::Hive::Version 2.4;
 
-use Bio::EnsEMBL::Compara::PipeConfig::Parts::CAFE;
-
-use Bio::EnsEMBL::Compara::PipeConfig::Parts::GOC;
-
-use Bio::EnsEMBL::Compara::PipeConfig::Parts::GeneSetQC;
-
 use Bio::EnsEMBL::Hive::PipeConfig::HiveGeneric_conf;
 use base ('Bio::EnsEMBL::Compara::PipeConfig::ComparaGeneric_conf');
 
@@ -350,24 +344,6 @@ sub default_options {
         # If all the species can be reused, and if the reuse_level is "clusters" or above, do we really want to copy all the peptide_align_feature / hmm_profile tables ? They can take a lot of space and are not used in the pipeline
         'quick_reuse'   => 1,
 
-        # Do we want to initialise the CAFE part now ?
-        'initialise_cafe_pipeline'  => undef,
-
-            # Data needed for CAFE
-            'cafe_lambdas'             => '',  # For now, we don't supply lambdas
-            'cafe_struct_tree_str'     => '',  # Not set by default
-            'full_species_tree_label'  => 'default',
-            'per_family_table'         => 1,
-            'cafe_species'             => [],
-
-        # Do we want to initialise the Ortholog quality metric part now ?
-#        'initialise_goc_pipeline'  => undef,
-        # Data needed for goc
-        'goc_taxlevels'                 => [],
-        'goc_threshold'                 => undef,
-        'reuse_goc'                     => undef,
-        # affects 'group_genomes_under_taxa'
-
     };
 }
 
@@ -449,13 +425,10 @@ sub pipeline_wide_parameters {  # these parameter values are visible to all anal
 
         'clustering_mode'   => $self->o('clustering_mode'),
         'reuse_level'       => $self->o('reuse_level'),
-        'goc_threshold'                 => $self->o('goc_threshold'),
-        'reuse_goc'                     => $self->o('reuse_goc'),
         'binary_species_tree_input_file'   => $self->o('binary_species_tree_input_file'),
         'all_blast_params'          => $self->o('all_blast_params'),
 
         'use_quick_tree_break'   => $self->o('use_quick_tree_break'),
-        'initialise_cafe_pipeline'   => $self->o('initialise_cafe_pipeline'),
         'do_stable_id_mapping'   => $self->o('do_stable_id_mapping'),
         'do_treefam_xref'   => $self->o('do_treefam_xref'),
     };
@@ -483,11 +456,7 @@ sub core_pipeline_analyses {
 # ---------------------------------------------[backbone]--------------------------------------------------------------------------------
 
         {   -logic_name => 'backbone_fire_db_prepare',
-            -module     => 'Bio::EnsEMBL::Hive::RunnableDB::SqlHealthcheck',
-            -parameters => {
-                'description'   => 'The version of the Compara schema must match the Core API',
-                'query'         => 'SELECT * FROM meta WHERE meta_key = "schema_version" AND meta_value != '.$self->o('ensembl_release'),
-            },
+            -module     => 'Bio::EnsEMBL::Compara::RunnableDB::AssertMatchingVersions',
             -input_ids  => [ { } ],
             -flow_into  => {
                 '1->A'  => [ 'copy_ncbi_tables_factory' ],
@@ -625,11 +594,11 @@ sub core_pipeline_analyses {
                 'executable'            => 'mysqlimport',
                 'append'                => [ '#method_link_dump_file#' ],
             },
-            -flow_into      => [ 'load_all_genomedbs' ],
+            -flow_into      => [ 'load_all_genomedbs_from_registry' ],
         },
 
-        {   -logic_name => 'load_all_genomedbs',
-            -module     => 'Bio::EnsEMBL::Compara::RunnableDB::LoadAllGenomeDBs',
+        {   -logic_name => 'load_all_genomedbs_from_registry',
+            -module     => 'Bio::EnsEMBL::Compara::RunnableDB::LoadAllGenomeDBsFromRegistry',
             -parameters => {
                 'registry_conf_file'  => $self->o('curr_core_registry'),
                 'registry_dbs'  => $self->o('curr_core_sources_locs'),
@@ -674,11 +643,9 @@ sub core_pipeline_analyses {
         },
 
         {   -logic_name => 'check_reuse_db_is_patched',
-            -module     => 'Bio::EnsEMBL::Hive::RunnableDB::SqlHealthcheck',
+            -module     => 'Bio::EnsEMBL::Compara::RunnableDB::AssertMatchingVersions',
             -parameters => {
                 'db_conn'       => '#reuse_db#',
-                'description'   => 'The schema version of the reused database must match the Core API',
-                'query'         => 'SELECT * FROM meta WHERE meta_key = "schema_version" AND meta_value != '.$self->o('ensembl_release'),
             },
         },
 
@@ -1242,59 +1209,20 @@ sub core_pipeline_analyses {
             -parameters         => {
                 blacklist_file      => $self->o('gene_blacklist_file'),
             },
-            -flow_into          => [ 'hc_clusters' ],
+            -flow_into          => [ 'create_additional_clustersets' ],
             -rc_name => '500Mb_job',
-        },
-
-        {   -logic_name         => 'hc_clusters',
-            -module             => 'Bio::EnsEMBL::Compara::RunnableDB::GeneTrees::SqlHealthChecks',
-            -parameters         => {
-                mode            => 'global_tree_set',
-            },
-            -flow_into          => [ 'run_qc_tests' ],
-            %hc_analysis_params,
         },
 
         {   -logic_name         => 'create_additional_clustersets',
             -module             => 'Bio::EnsEMBL::Compara::RunnableDB::GeneTrees::CreateClustersets',
             -parameters         => {
                 member_type     => 'protein',
-                'additional_clustersets'    => [qw(treebest phyml-aa phyml-nt nj-dn nj-ds nj-mm raxml raxml_parsimony raxml_bl notung copy raxml_update )],
+                'additional_clustersets'    => [qw(treebest phyml-aa phyml-nt nj-dn nj-ds nj-mm raxml raxml_parsimony raxml_bl notung copy raxml_update filter_level_1 filter_level_2 )],
             },
         },
 
 
 # ---------------------------------------------[Pluggable QC step]----------------------------------------------------------
-
-        {   -logic_name => 'run_qc_tests',
-            -module     => 'Bio::EnsEMBL::Compara::RunnableDB::GenomeDBFactory',
-            -parameters => {
-                'polyploid_genomes' => 0,
-            },
-            -flow_into => {
-                '2->A' => [ 'per_genome_qc' ],
-                '1->A' => [ 'overall_qc' ],
-                'A->1' => [ 'clusterset_backup' ],
-            },
-        },
-
-        {   -logic_name => 'overall_qc',
-            -module     => 'Bio::EnsEMBL::Compara::RunnableDB::GeneTrees::OverallGroupsetQC',
-            -parameters => {
-                'reuse_db'  => '#mapping_db#',
-            },
-            -hive_capacity  => $self->o('reuse_capacity'),
-            -rc_name    => '2Gb_job',
-        },
-
-        {   -logic_name => 'per_genome_qc',
-            -module     => 'Bio::EnsEMBL::Compara::RunnableDB::GeneTrees::PerGenomeGroupsetQC',
-            -parameters => {
-                'reuse_db'  => '#mapping_db#',
-            },
-            -hive_capacity => $self->o('reuse_capacity'),
-            -rc_name    => '4Gb_job',
-        },
 
         {   -logic_name    => 'clusterset_backup',
             -module        => 'Bio::EnsEMBL::Hive::RunnableDB::SqlCmd',

@@ -249,28 +249,25 @@ sub _process {
   return;
 }
 
-sub _write_taxonomy {
-  my ($self, $taxon) = @_;
+sub _write_genome_db {
+  my ($self, $gdb) = @_;
   my $w = $self->_writer();
   $w->startTag('taxonomy');
-  $w->dataElement('id', $taxon->dbID);
-  $w->dataElement('scientific_name', $taxon->name);
-  my $common_name = $taxon->ensembl_alias_name || $taxon->common_name;
-  $w->dataElement('common_name', $common_name) if $common_name;
+  $w->dataElement('id', $gdb->taxon_id);
+  $w->dataElement('scientific_name', $gdb->get_scientific_name);
+  $w->dataElement('common_name', $gdb->display_name);
   $w->endTag();
-  return;
 }
 
 sub _write_species_tree_node {
   my ($self, $stn) = @_;
-  if ($stn->taxon_id and (my $taxon = $stn->taxon)) {
-    $self->_write_taxonomy($taxon);
-  } else {
-    my $w = $self->_writer();
-    $w->startTag('taxonomy');
-    $w->dataElement('scientific_name', $stn->node_name);
-    $w->endTag();
-  }
+  my $w = $self->_writer();
+  $w->startTag('taxonomy');
+  $w->dataElement('id', $stn->taxon_id) if $stn->taxon_id;
+  $w->dataElement('scientific_name', $stn->get_scientific_name);
+  my $common_name = $stn->get_common_name;
+  $w->dataElement('common_name', $common_name) if $common_name;
+  $w->endTag();
 }
 
 # NB: this methods relies on parameters that *must* be defined in self:
@@ -281,13 +278,12 @@ sub _write_seq_member {
   my $w = $self->_writer();
 
   my $gene = $protein->gene_member();
-  my $taxon = $protein->taxon();
 
   #Stable IDs
   $w->dataElement('name', $gene->stable_id());
 
-  #Taxon
-  $self->_write_taxonomy($taxon);
+  #Taxon (GenomeDB)
+  $self->_write_genome_db($protein->genome_db);
 
   #Dealing with Sequence
   $w->startTag('sequence');

@@ -72,30 +72,36 @@ sub default_options {
 
         #'mlss_id'         => 30047,                    # it is very important to check that this value is current (commented out to make it obligatory to specify)
         #'host'          => 'compara2',                 # where the pipeline database will be created
-        'host'          => 'mysql-treefam-prod',        # where the pipeline database will be created
-        'port'          => '4401',                      # server port
+        'host'          => 'mysql-ens-compara-prod-3.ebi.ac.uk',        # where the pipeline database will be created
+        'port'          => '4523',                      # server port
 
         'email'           => $self->o('ENV', 'USER').'@ebi.ac.uk',
+
+        #Binary source directory
+        'exe_dir'               =>  $self->o('ensembl_cellar').'',
 
         # HMM clustering
         #'hmm_clustering'      => 0,
         'hmm_clustering'      => 1,
-        'hmm_library_basedir' => '/nfs/panda/ensembl/production/mateus/compara/multi_division_hmm_lib/',
-        'pantherScore_path'   => '/nfs/panda/ensembl/production/mateus/family_pipeline_binaries/pantherScore1.03',
-        'hmmer2_home'         => '/nfs/panda/ensembl/production/mateus/family_pipeline_binaries/hmmer-2.3.2/src/',
+        'hmm_library_basedir' => '/hps/nobackup/production/ensembl/compara_ensembl/treefam_hmms/2015-12-18',
+        'pantherScore_path'   => '/nfs/panda/ensembl/compara/mateus/family_pipeline_binaries/pantherScore1.03',
+        'hmmer2_home'         => $self->o('exe_dir').'/hmmer2/2.3.2/bin/',
 
         # code directories:
-        'blast_bin_dir'  => '/nfs/panda/ensemblgenomes/external/ncbi-blast-2+/bin',
-        'mcl_bin_dir'    => '/nfs/panda/ensembl/production/mateus/family_pipeline_binaries/mcl-14-137/bin',
-        'mafft_root_dir' => '/nfs/panda/ensembl/production/mateus/family_pipeline_binaries/mafft-7.221',
+        'blast_bin_dir'  => $self->o('exe_dir').'/blast-2230/2.2.30/bin/',
+        'mcl_bin_dir'    => $self->o('exe_dir').'/mcl/14-137/bin/',
+        'mafft_root_dir' => $self->o('exe_dir').'/mafft/7.305/',
 
         # data directories:
-        'work_dir'      => '/nfs/panda/ensembl/production/mateus/compara/' . $self->o( 'ENV', 'USER' ) . '/' . $self->o('pipeline_name'),
-        'warehouse_dir' => '/panfs/nobackup/production/ensembl/mateus/families/',            # ToDo: move to a Compara-wide warehouse location
+        'work_dir'      => '/hps/nobackup/production/ensembl/' . $self->o( 'ENV', 'USER' ) . '/family_pipeline/' . $self->o('pipeline_name'),
+        'warehouse_dir' => '/nfs/production/panda/ensembl/warehouse/compara/production/'.$self->o('ensembl_release').'/',
 
         'blast_params' => '',    # By default C++ binary has composition stats on and -seg masking off
 
-        'first_n_big_families' => 2,    # these are known to be big, so no point trying in small memory
+        # Thresholds for Mafft resource-classes
+        'max_genes_lowmem_mafft'        =>  8000,
+        'max_genes_singlethread_mafft'  => 50000,
+        'max_genes_computable_mafft'    => 300000,
 
         # resource requirements:
         'blast_minibatch_size'    => 25,                         # we want to reach the 1hr average runtime per minibatch
@@ -106,17 +112,24 @@ sub default_options {
         'mafft_threads'           => 8,
         'lomafft_gigs'            => 4,
         'himafft_gigs'            => 64,
-        'dbresource'              => 'my' . $self->o('host'),    # will work for compara1..compara5, but will have to be set manually otherwise
+        'humafft_gigs'            => 96,
         'blast_capacity'          => 5000,                       # work both as hive_capacity and resource-level throttle
         'mafft_capacity'          => 400,
         'cons_capacity'           => 100,
         'HMMer_classify_capacity' => 1500,
 
         # used by the StableIdMapper as the reference:
-        'prev_rel_db' => 'mysql://ensro@ens-livemirror/ensembl_compara_#expr( #release# - 1)expr#',
+        'prev_rel_db' => 'mysql://ensro@mysql-ensembl-mirror:4240/ensembl_compara_#expr( #release# - 1)expr#',
+
+        # Protein Tree database
+        'protein_trees_db' => 'mysql://ensadmin:' . $self->o('password') . '@mysql-ens-compara-prod-2:4522/waakanni_protein_trees_88',
+
+        # Production database (for the biotypes)
+        'production_db_url'     => 'mysql://ensro@mysql-ens-sta-1:4519/ensembl_production',
 
         # used by the StableIdMapper as the location of the master 'mapping_session' table:
-        'master_db' => 'mysql://admin:' . $self->o('password') . '@mysql-treefam-prod:4401/mateus_compara_master', };
+        'master_db' => 'mysql://ensadmin:' . $self->o('password') . '@mysql-ens-compara-prod-1:4485/ensembl_compara_master', };
+
 } ## end sub default_options
 
 sub resource_classes {
@@ -124,15 +137,18 @@ sub resource_classes {
     return {
         %{ $self->SUPER::resource_classes },    # inherit 'default' from the parent class
 
-        'default'   => { 'LSF' => '-q production-rh6 -M100   -R"select[mem>100]   rusage[mem=100]"' },
-        'urgent'   => { 'LSF' => '-q production-rh6' },
-        'RegBlast' => { 'LSF' => [ '-C0 -M' . $self->o('blast_gigs') . '000 -q production-rh6 -R"select[mem>'. $self->o('blast_gigs') . '000] rusage[mem=' . $self->o('blast_gigs') . '000]"', '-lifespan 360' ] },
-        'LongBlastHM' => { 'LSF' => [ '-C0 -M' . $self->o('blast_hm_gigs') . '000 -q production-rh6 -R"select[mem>' .  $self->o('blast_hm_gigs') . '000] rusage[mem=' . $self->o('blast_hm_gigs') . '000]"', '-lifespan 1440' ] },
-        'BigMcxload' => { 'LSF' => '-C0 -M' . $self->o('mcl_gigs') . '000 -q production-rh6 -R"select[mem>' . $self->o('mcl_gigs') . '000] rusage[mem=' . $self->o('mcl_gigs') . '000]"' },
-        'BigMcl'     => { 'LSF' => '-C0 -M' . $self->o('mcl_gigs') . '000 -n ' . $self->o('mcl_threads') . ' -q production-rh6 -R"select[ncpus>=' . $self->o('mcl_threads') . ' && mem>' .  $self->o('mcl_gigs') . '000] rusage[mem=' . $self->o('mcl_gigs') . '000] span[hosts=1]"' },
-        'BigMafft_multi_core' => { 'LSF' => '-C0 -M' . $self->o('himafft_gigs') . '000  -n ' . $self->o('mafft_threads') . ' -q production-rh6 -R"select[ncpus>=' . $self->o('mafft_threads') . ' && mem>' .  $self->o('himafft_gigs') . '000] rusage[mem=' . $self->o('himafft_gigs') . '000] span[hosts=1]"' },
+        'default'   => { 'LSF' => '-M100   -R"select[mem>100]   rusage[mem=100]"' },
+        'urgent'    => { 'LSF' => '-M100   -R"select[mem>100]   rusage[mem=100]"' },
+        'RegBlast' => { 'LSF' => [ '-C0 -M' . $self->o('blast_gigs') . '000 -R"select[mem>'. $self->o('blast_gigs') . '000] rusage[mem=' . $self->o('blast_gigs') . '000]"', '-lifespan 360' ] },
+        'LongBlastHM' => { 'LSF' => [ '-C0 -M' . $self->o('blast_hm_gigs') . '000 -R"select[mem>' .  $self->o('blast_hm_gigs') . '000] rusage[mem=' . $self->o('blast_hm_gigs') . '000]"', '-lifespan 1440' ] },
+        'BigMcxload' => { 'LSF' => '-C0 -M' . $self->o('mcl_gigs') . '000 -R"select[mem>' . $self->o('mcl_gigs') . '000] rusage[mem=' . $self->o('mcl_gigs') . '000]"' },
+        'BigMcl'     => { 'LSF' => '-C0 -M' . $self->o('mcl_gigs') . '000 -n ' . $self->o('mcl_threads') . ' -R"select[ncpus>=' . $self->o('mcl_threads') . ' && mem>' .  $self->o('mcl_gigs') . '000] rusage[mem=' . $self->o('mcl_gigs') . '000] span[hosts=1]"' },
+        'BigMafft'   => { 'LSF' => '-C0 -M'.$self->o('himafft_gigs').'000' },
+        'HugeMafft_multi_core' => { 'LSF' => '-C0 -M' . $self->o('humafft_gigs') . '000 -n ' . $self->o('mafft_threads') . ' -R"span[hosts=1]"' },
         'LoMafft' => { 'LSF' => '-C0 -M' . $self->o('lomafft_gigs') . '000 -R"select[mem>' . $self->o('lomafft_gigs') . '000] rusage[mem=' . $self->o('lomafft_gigs') . '000]"' },
+        '500MegMem' => { 'LSF' => '-C0 -M500 -R"select[mem>500] rusage[mem=500]"' },
         '2GigMem' => { 'LSF' => '-C0 -M2000 -R"select[mem>2000] rusage[mem=2000]"' }, 
+        '4GigMem' => { 'LSF' => '-C0 -M4000 -R"select[mem>4000] rusage[mem=4000]"' },
         '8GigMem' => { 'LSF' => '-C0 -M8000 -R"select[mem>8000] rusage[mem=8000]"' }, 
         '16GigMem' => { 'LSF' => '-C0 -M16000 -R"select[mem>16000] rusage[mem=16000]"' },
     

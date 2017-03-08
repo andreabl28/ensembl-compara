@@ -225,6 +225,51 @@ sub fetch_by_Transcript {
 }
 
 
+=head2 fetch_exon_boundaries_by_SeqMember
+
+  Example     : $seqmember_adaptor->fetch_exon_boundaries_by_SeqMember($seq);
+  Description : Returns the coordinates of all the exons of all the transcripts of this Seq
+  Returntype  : Arrayref of [start,end,sequence_length,left_over] coordinates
+  Exceptions  : none
+
+=cut
+
+sub fetch_exon_boundaries_by_SeqMember {
+    my ($self, $seq_member) = @_;
+
+    assert_ref_or_dbID($seq_member, 'Bio::EnsEMBL::Compara::SeqMember', 'seq_member');
+    my $seq_member_id = ref($seq_member) ? $seq_member->dbID : $seq_member;
+    return $self->dbc->db_handle->selectall_arrayref('SELECT dnafrag_start, dnafrag_end, sequence_length, left_over FROM exon_boundaries WHERE seq_member_id = ?', undef, $seq_member_id);
+}
+
+
+=head2 _store_exon_boundaries_for_SeqMember
+
+  Arg[1]      : Bio::EnsEMBL::Compara::SeqMember $seq_member
+  Arg[2]      : Arrayref of [$start,$end] coordinates
+  Example     : $seqmember_adaptor->_store_exon_boundaries_for_SeqMember($seq_member, $exons);
+  Description : Store the given exon coordinates for this SeqMember
+  Returntype  : none
+  Exceptions  : none
+
+=cut
+
+sub _store_exon_boundaries_for_SeqMember {
+    my ($self, $seq_member, $exons) = @_;
+
+    assert_ref($seq_member, 'Bio::EnsEMBL::Compara::SeqMember', 'seq_member');
+    my $seq_member_id = $seq_member->dbID;
+    my $gene_member_id = $seq_member->gene_member_id;
+
+    # Delete data from a previous (aborted ?) run
+    $self->dbc->do('DELETE FROM exon_boundaries WHERE seq_member_id = ?', undef, $seq_member_id);
+    # Insert the coordinates
+    my $sth = $self->prepare('INSERT INTO exon_boundaries (gene_member_id, seq_member_id, dnafrag_start, dnafrag_end, sequence_length, left_over) VALUES (?,?,?,?,?,?)');
+    $sth->execute($gene_member_id, $seq_member_id, @$_) for @$exons;
+    $sth->finish;
+}
+
+
 #
 # INTERNAL METHODS
 #
@@ -249,6 +294,8 @@ sub _columns {
           'm.dnafrag_strand',
           'm.sequence_id',
           'm.gene_member_id',
+          'm.has_transcript_edits',
+          'm.has_translation_edits',
           'm.display_label'
           );
 }
@@ -272,6 +319,8 @@ sub create_instance_from_rowhash {
 		_source_name    => $rowhash->{source_name},
 		_display_label  => $rowhash->{display_label},
 		_gene_member_id => $rowhash->{gene_member_id},
+                _has_transcript_edits   => $rowhash->{has_transcript_edits},
+                _has_translation_edits  => $rowhash->{has_translation_edits},
 	});
 }
 
@@ -294,6 +343,8 @@ sub init_instance_from_rowhash {
   $member->gene_member_id($rowhash->{'gene_member_id'});
   $member->source_name($rowhash->{'source_name'});
   $member->display_label($rowhash->{'display_label'});
+  $member->has_transcript_edits($rowhash->{'has_transcript_edits'});
+  $member->has_translation_edits($rowhash->{'has_translation_edits'});
   $member->adaptor($self) if ref $self;
 
   return $member;
@@ -311,19 +362,21 @@ sub init_instance_from_rowhash {
 sub store {
     my ($self, $member) = @_;
    
-    assert_ref($member, 'Bio::EnsEMBL::Compara::SeqMember');
+    assert_ref($member, 'Bio::EnsEMBL::Compara::SeqMember', 'member');
 
 
   my $sth = $self->prepare("INSERT ignore INTO seq_member (stable_id,version, source_name,
-                              gene_member_id,
+                              gene_member_id, has_transcript_edits, has_translation_edits,
                               taxon_id, genome_db_id, description,
                               dnafrag_id, dnafrag_start, dnafrag_end, dnafrag_strand, display_label)
-                            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)");
+                            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)");
 
   my $insertCount = $sth->execute($member->stable_id,
                   $member->version,
                   $member->source_name,
                   $member->gene_member_id,
+                  $member->has_transcript_edits,
+                  $member->has_translation_edits,
                   $member->taxon_id,
                   $member->genome_db_id,
                   $member->description,
@@ -399,7 +452,7 @@ sub update_sequence {   ## DEPRECATED
 sub _set_member_as_canonical {
     my ($self, $member) = @_;
 
-    assert_ref($member, 'Bio::EnsEMBL::Compara::SeqMember');
+    assert_ref($member, 'Bio::EnsEMBL::Compara::SeqMember', 'member');
 
     my $sth = $self->prepare('UPDATE gene_member SET canonical_member_id = ? WHERE gene_member_id = ?');
     $sth->execute($member->seq_member_id, $member->gene_member_id);

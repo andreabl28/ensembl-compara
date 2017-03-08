@@ -36,12 +36,8 @@ Wrapper around Bio::EnsEMBL::Analysis::Runnable::Mercator
 Create Pecan jobs
 
 Supported keys:
-    'genome_db_ids' => <list of genome_db_ids>
-        The genome_db_ids for the Pecan method link species set
-
     'mlss_id' => <number>
-        The id of the pecan method link species set. Used to retreive the genome_db_ids
-        if not set by 'genome_db_ids'
+        The id of the pecan method link species set.
 
      'input_dir' => <directory_path>
         Location of input files
@@ -67,19 +63,11 @@ use Bio::EnsEMBL::Analysis;
 use base ('Bio::EnsEMBL::Compara::RunnableDB::BaseRunnable');
 
 sub fetch_input {
-  my( $self) = @_;
+    my ($self) = @_;
 
-  if (!defined $self->param('genome_db_ids')) {
-      my $mlss = $self->compara_dba->get_MethodLinkSpeciesSetAdaptor()->fetch_by_dbID($self->param('mlss_id'));
-      my $species_set = $mlss->species_set->genome_dbs;
-      my $gdb_ids;
-      foreach my $gdb (@$species_set) {
-	    push @$gdb_ids, $gdb->dbID;
-      }
-      $self->param('genome_db_ids', $gdb_ids);
-  }
-
-  return 1;
+    my $mlss = $self->compara_dba->get_MethodLinkSpeciesSetAdaptor()->fetch_by_dbID($self->param_required('mlss_id'));
+    my @gdb_ids = map {$_->dbID} @{ $mlss->species_set->genome_dbs };
+    $self->param('genome_db_ids', \@gdb_ids);
 }
 
 sub run
@@ -107,8 +95,7 @@ sub run
 sub write_output {
   my ($self) = @_;
 
-  my %run_ids2synteny_and_constraints;
-  my $synteny_region_ids = $self->store_synteny(\%run_ids2synteny_and_constraints);
+  my $synteny_region_ids = $self->store_synteny();
   foreach my $sr_id (@{$synteny_region_ids}) {
 
     #Flow into pecan
@@ -121,7 +108,6 @@ sub write_output {
 
 =head2 store_synteny
 
-  Arg[1]      : hashref $run_ids2synteny_and_constraints (unused)
   Example     : $self->store_synteny();
   Description : This method will store the syntenies defined by Mercator
                 into the compara DB. The MethodLinkSpecieSet for these
@@ -135,52 +121,52 @@ sub write_output {
 =cut
 
 sub store_synteny {
-  my ($self, $run_ids2synteny_and_constraints) = @_;
+  my ($self) = @_;
 
   my $mlssa = $self->compara_dba->get_MethodLinkSpeciesSetAdaptor;
   my $sra = $self->compara_dba->get_SyntenyRegionAdaptor;
   my $dfa = $self->compara_dba->get_DnaFragAdaptor;
-  my $gdba = $self->compara_dba->get_GenomeDBAdaptor;
 
-  my @genome_dbs;
-  foreach my $gdb_id (@{$self->param('genome_db_ids')}) {
-    my $gdb = $gdba->fetch_by_dbID($gdb_id);
-    push @genome_dbs, $gdb;
+  my $mlss_id = $self->param_required('mlss_id');
+
+  # Now we add new regions for the non-nuclear cellular components
+  my @extra_synteny_groups;
+  my $genome_dbs = $mlssa->fetch_by_dbID($mlss_id)->species_set->genome_dbs;
+  foreach my $cellular_component (qw(MT PT)) {
+      my @regions;
+      foreach my $genome_db (@$genome_dbs) {
+          foreach my $dnafrag (@{ $dfa->fetch_all_by_GenomeDB_region($genome_db, undef, undef, 1, $cellular_component) }) {
+              push @regions, [$cellular_component, $dnafrag->genome_db_id, $dnafrag->name.'--1', 1, $dnafrag->length, '+'];
+          }
+      }
+      push @extra_synteny_groups, \@regions if scalar(@regions) > 1;
   }
-  my $mlss = new Bio::EnsEMBL::Compara::MethodLinkSpeciesSet(
-     -method => new Bio::EnsEMBL::Compara::Method( -type => $self->param('method_link_type') ),
-     -species_set => new Bio::EnsEMBL::Compara::SpeciesSet( -genome_dbs => \@genome_dbs ));
-  $mlssa->store($mlss);
 
   my $synteny_region_ids;
-  my %dnafrag_hash;
-  foreach my $sr (@{$self->param('runnable')->output}) {
-    my $synteny_region = new Bio::EnsEMBL::Compara::SyntenyRegion
-      (-method_link_species_set_id => $mlss->dbID);
+  foreach my $sr (@{$self->param('runnable')->output}, @extra_synteny_groups) {
+    my @regions;
     my $run_id;
     foreach my $dfr (@{$sr}) {
       my ($gdb_id, $seq_region_name, $start, $end, $strand);
       ($run_id, $gdb_id, $seq_region_name, $start, $end, $strand) = @{$dfr};
       next if ($seq_region_name eq 'NA' && $start eq 'NA' && $end eq 'NA' && $strand eq 'NA');
       $seq_region_name =~ s/\-\-\d+$//;
-      my $dnafrag = $dnafrag_hash{$gdb_id."_".$seq_region_name};
-      unless (defined $dnafrag) {
-        $dnafrag = $dfa->fetch_by_GenomeDB_and_name($gdb_id, $seq_region_name);
-        $dnafrag_hash{$gdb_id."_".$seq_region_name} = $dnafrag;
-      }
+      my $dnafrag = $dfa->fetch_by_GenomeDB_and_name($gdb_id, $seq_region_name);
       $strand = ($strand eq "+")?1:-1;
-      my $dnafrag_region = new Bio::EnsEMBL::Compara::DnaFragRegion
-        (-dnafrag_id => $dnafrag->dbID,
-         -dnafrag_start => $start+1, # because half-open coordinate system
-         -dnafrag_end => $end,
-         -dnafrag_strand => $strand);
-      my $regions = $synteny_region->regions;
-      push @$regions, $dnafrag_region;
-      $synteny_region->regions($regions);
+      my $dnafrag_region = Bio::EnsEMBL::Compara::DnaFragRegion->new_fast( {
+              'dnafrag_id'      => $dnafrag->dbID,
+              'dnafrag_start'   => $start+1, # because half-open coordinate system
+              'dnafrag_end'     => $end,
+              'dnafrag_strand'  => $strand,
+      } );
+      push @regions, $dnafrag_region;
     }
+    my $synteny_region = Bio::EnsEMBL::Compara::SyntenyRegion->new_fast( {
+        'method_link_species_set_id' => $mlss_id,
+        'regions' => \@regions,
+    } );
     $sra->store($synteny_region);
     push @{$synteny_region_ids}, $synteny_region->dbID;
-    push @{$run_ids2synteny_and_constraints->{$run_id}}, $synteny_region->dbID;
   }
 
   return $synteny_region_ids;

@@ -57,10 +57,12 @@ use base ('Bio::EnsEMBL::Compara::NestedSet');
 
 sub _complete_cast_node {
     my ($self, $orig) = @_;
+    $self->node_name($orig->name);
     if (exists $orig->{'_gdb'}) {
         $self->{'_genome_db'} = $orig->{'_gdb'};
         $self->genome_db_id($orig->{'_gdb'}->dbID);
         weaken($self->{'_genome_db'});
+        $self->node_name($orig->{'_gdb'}->get_scientific_name);
     }
     if ($orig->isa('Bio::EnsEMBL::Compara::NCBITaxon')) {
         $self->taxon($orig);
@@ -70,7 +72,6 @@ sub _complete_cast_node {
         $self->taxon($orig->{'_taxon'}) if $orig->{'_taxon'};
         $self->taxon_id($orig->taxon_id);
     }
-    $self->node_name($orig->name);
 }
 
 
@@ -176,6 +177,38 @@ sub string_node {
 
     return $s;
 }
+
+
+sub get_scientific_name {
+    my $self = shift;
+    if (my $gdb = $self->genome_db) {
+        return $gdb->get_scientific_name;
+    } elsif (my $taxon = $self->taxon) {
+        return $taxon->scientific_name();
+    }
+    return $self->node_name;
+}
+
+sub get_common_name {
+    my $self = shift;
+    if (my $gdb = $self->genome_db) {
+        return $gdb->display_name;
+    } elsif (my $taxon = $self->taxon) {
+        return $taxon->get_common_name();
+    }
+    return;
+}
+
+
+sub get_divergence_time {
+    my ($self, $query_timetree) = @_;
+
+    require Bio::EnsEMBL::Compara::Utils::SpeciesTree;
+    my $mya = $self->taxon->get_value_for_tag('ensembl timetree mya');
+       $mya = Bio::EnsEMBL::Compara::Utils::SpeciesTree->get_timetree_estimate($self) if $query_timetree && !(defined $mya);
+    return $mya;
+}
+
 
 sub toString {
     my $self = shift;

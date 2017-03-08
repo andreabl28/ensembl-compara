@@ -206,7 +206,7 @@ sub create_species_tree {
             $new_leaf->genome_db_id($genome_db->dbID);
             $new_leaf->{'_genome_db'} = $genome_db;
             $new_leaf->node_id($taxon_id);
-            $new_leaf->node_name(sprintf('%s (component %s)', $new_leaf->node_name, $genome_db->genome_component)) if $genome_db->genome_component;
+            $new_leaf->node_name($genome_db->get_scientific_name);
             $new_node->add_child($new_leaf);
             if ($genome_db->taxon_id != $taxon_id) {
                 $new_leaf->taxon_id($genome_db->taxon_id);
@@ -260,11 +260,11 @@ sub prune_tree {
 sub get_timetree_estimate {
     my ($self, $node) = @_;
 
-    assert_ref($node, 'Bio::EnsEMBL::Compara::SpeciesTreeNode');
+    assert_ref($node, 'Bio::EnsEMBL::Compara::SpeciesTreeNode', 'node');
     return if $node->is_leaf();
     my @children = @{$node->children};
     if (scalar(@children) == 1) {
-        warn sprintf("'%s' has a single child. Cannot estimate the divergence time of a *single* species.\n", $node->name);
+        warn sprintf("'%s' has a single child. Cannot estimate the divergence time of a non-furcating node.\n", $node->name);
         return;
     }
 

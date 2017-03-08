@@ -79,11 +79,12 @@ our @EXPORT_OK;
     copy_table_in_binary_mode
     copy_table_in_text_mode
     bulk_insert
+    single_insert
 );
 %EXPORT_TAGS = (
   'row_copy'    => [qw(copy_data_with_foreign_keys_by_constraint clear_copy_data_cache)],
   'table_copy'  => [qw(copy_data copy_table)],
-  'insert'      => [qw(bulk_insert)],
+  'insert'      => [qw(bulk_insert single_insert)],
   'all'         => [@EXPORT_OK]
 );
 
@@ -415,6 +416,11 @@ sub copy_data_in_text_mode {
         #print "start $start end $end $max_id rows $nrows\n";
         #print "FILE $filename\n";
         #print "time " . ($start-$min_id) . " " . (time - $start_time) . "\n";
+
+        # Heuristics: it's going to take some time to insert these rows, so
+        # better to disconnect to save resources on the source server
+        $from_dbc->disconnect_if_idle if $nrows >= 100_000;
+
         system('mysqlimport', "-h$host", "-P$port", "-u$user", $pass ? ("-p$pass") : (), '--local', '--lock-tables', $replace ? '--replace' : '--ignore', $dbname, $filename);
 
         unlink($filename);
@@ -601,6 +607,35 @@ sub copy_table_in_binary_mode {
         "| mysql   -h$to_host   -P$to_port   -u$to_user   ".($to_pass ? "-p$to_pass" : '')." $to_dbname");
 
     #print "time " . ($start-$min_id) . " " . (time - $start_time) . "\n";
+}
+
+
+=head2 single_insert
+
+  Arg[1]      : Bio::EnsEMBL::DBSQL::DBConnection $dest_dbc
+  Arg[2]      : string $table_name
+  Arg[3]      : arrayref of values$data
+  Arg[4]      : (opt) arrayref of strings $col_names (defaults to the column-order at the database level)
+  Arg[5]      : (opt) string $insertion_mode (default: 'INSERT')
+
+  Description : Simple method to execute an INSERT statement without having to write it. The values
+                in $data must be in the same order as in $col_names (if provided) or the columns in
+                the table itself.  The method returns the number of rows inserted (0 or 1).
+  Returntype  : integer
+  Exceptions  : none
+  Caller      : general
+  Status      : Stable
+
+=cut
+
+sub single_insert {
+    my ($dest_dbc, $table_name, $data, $col_names, $insertion_mode) = @_;
+
+    my $n_values = scalar(@$data);
+    my $insert_sql = ($insertion_mode || 'INSERT') . ' INTO ' . $table_name;
+    $insert_sql .= ' (' . join(',', @$col_names) . ')' if $col_names;
+    $insert_sql .= ' VALUES (' . ('?,'x($n_values-1)) . '?)';
+    return $dest_dbc->do($insert_sql, undef, @$data) or die "Could not execute the insert because of ".$dest_dbc->db_handle->errstr;
 }
 
 

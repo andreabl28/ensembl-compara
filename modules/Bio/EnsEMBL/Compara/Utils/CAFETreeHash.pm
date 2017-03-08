@@ -36,7 +36,7 @@ sub _head_node {
   my $hash = {
     type => 'cafe tree',
     rooted => 1,
-    pvalue_avg => $tree->pvalue_avg(),
+    pvalue_avg => $tree->pvalue_avg()+0,
   };
 
   if($tree->can('stable_id')) {
@@ -71,11 +71,15 @@ sub _convert_node {
   if (my $taxon = $node->taxon) {
     $hash->{tax} = {
 		    'id' => $taxon_id + 0,
-		    'scientific_name' => $taxon->scientific_name,
-		    'alias_name' => $taxon->ensembl_alias_name,
 		    'timetree_mya' => $taxon->get_value_for_tag('ensembl timetree mya') || 0 + 0
 		   };
-    $hash->{tax}->{'production_name'} = $node->genome_db->name if $node->genome_db_id;
+    $hash->{tax}->{'scientific_name'} = $node->get_scientific_name;
+    my $cn = $node->get_common_name();
+    $hash->{tax}->{'common_name'} = $cn if $cn;
+    if ($node->genome_db_id) {
+        $hash->{tax}->{'production_name'} = $node->genome_db->name;
+        $hash->{tax}->{'url_name'} = $node->genome_db->{'_url_name'} if $node->genome_db->{'_url_name'};
+    }
   }
 
   my $node_id = $node->node_id();
@@ -100,7 +104,7 @@ sub _convert_node {
 
   my $p_value_lim = $node->pvalue_lim();
   if ($p_value_lim) {
-    $hash->{p_value_lim} = $p_value_lim;
+    $hash->{p_value_lim} = $p_value_lim+0;
   }
 
   my $is_node_significant = $node->is_node_significant();

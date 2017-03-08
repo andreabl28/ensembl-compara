@@ -72,6 +72,7 @@ use warnings;
 use Bio::EnsEMBL::DBLoader;
 use Bio::EnsEMBL::Utils::Exception qw(deprecate warning throw);
 use Bio::EnsEMBL::Utils::Argument qw(rearrange);
+use Bio::EnsEMBL::Utils::Scalar qw(assert_ref);
 
 use Bio::EnsEMBL::Compara::Utils::CoreDBAdaptor;
 
@@ -103,39 +104,54 @@ sub new {
 
     my $self = $class->SUPER::new(@_);       # deal with Storable stuff
 
-    my($db_adaptor, $name, $assembly, $taxon_id,  $genebuild, $has_karyotype, $genome_component, $is_high_coverage) =
-        rearrange([qw(DB_ADAPTOR NAME ASSEMBLY TAXON_ID GENEBUILD HAS_KARYOTYPE GENOME_COMPONENT IS_HIGH_COVERAGE)], @_);
-
-    # If there is a Core DBAdaptor, we can get most of the info from there,
-    # but we'll have to check it is consistent with the required attributes
-    my $core_genome_db = undef;
-    if ($db_adaptor) {
-        my $meta_container      = $db_adaptor->get_MetaContainer;
-        my $genome_container    = $db_adaptor->get_GenomeContainer;
-
-        $self->db_adaptor($db_adaptor);
-        $self->name( $meta_container->get_production_name() );
-        $self->assembly( $db_adaptor->assembly_name() );
-        $self->taxon_id( $meta_container->get_taxonomy_id() );
-        $self->genebuild( $meta_container->get_genebuild() );
-        $self->has_karyotype( $genome_container->has_karyotype() );
-        $self->is_high_coverage( $genome_container->is_high_coverage() );
-
-        if ($genome_component and not scalar(grep {$_ eq $genome_component} @{$genome_container->get_genome_components})) {
-            die "The required genome component '$genome_component' cannot be found in the database, please investigate\n";
-        }
-        $core_genome_db = bless \%{$self}, 'Bio::EnsEMBL::Compara::GenomeDB';
-    }
+    my($db_adaptor, $name, $assembly, $taxon_id,  $genebuild, $has_karyotype, $genome_component, $strain_name, $display_name, $is_high_coverage) =
+        rearrange([qw(DB_ADAPTOR NAME ASSEMBLY TAXON_ID GENEBUILD HAS_KARYOTYPE GENOME_COMPONENT STRAIN_NAME DISPLAY_NAME IS_HIGH_COVERAGE)], @_);
 
     $name         && $self->name($name);
     $assembly     && $self->assembly($assembly);
     $taxon_id     && $self->taxon_id($taxon_id);
     $genebuild    && $self->genebuild($genebuild);
+    $db_adaptor   && $self->db_adaptor($db_adaptor);
     defined $has_karyotype      && $self->has_karyotype($has_karyotype);
     defined $genome_component   && $self->genome_component($genome_component);
     defined $is_high_coverage   && $self->is_high_coverage($is_high_coverage);
+    defined $strain_name        && $self->strain_name($strain_name);
+    defined $display_name        && $self->display_name($display_name);
 
-    $self->_assert_equals($core_genome_db) if $core_genome_db;
+    return $self;
+}
+
+
+=head2 new_from_DBAdaptor
+
+  Arg [1]    : Bio::EnsEMBL::DBSQL::DBAdaptor $db_adaptor
+  Arg [2]    : (optional) string $genome_component
+  Example    : my $genome_db = Bio::EnsEMBL::Compara::GenomeDB->new_from_DBAdaptor( $dba );
+  Description: Creates a new GenomeDB object from a Core DBAdaptor.
+               All the fields are populated from the Core database, with the exception of
+               the genome_component which has to provided here (only for polyploid genomes)
+  Returntype : Bio::EnsEMBL::Compara::GenomeDB
+  Exceptions : none
+  Caller     : general
+  Status     : Stable
+
+=cut
+
+sub new_from_DBAdaptor {
+    my ($caller, $db_adaptor, $genome_component) = @_;
+    my $class = ref($caller) || $caller;
+
+    my $self = $class->SUPER::new();        # deal with Storable stuff
+
+    $self->db_adaptor($db_adaptor, 1);
+
+    if ($genome_component) {
+        if (grep {$_ eq $genome_component} @{$db_adaptor->get_GenomeContainer->get_genome_components}) {
+            $self->genome_component($genome_component);
+        } else {
+            die "The required genome component '$genome_component' cannot be found in the database, please investigate\n";
+        }
+    }
 
     return $self;
 }
@@ -162,17 +178,23 @@ sub db_adaptor {
     my ( $self, $dba, $update_other_fields ) = @_;
 
     if($dba) {
-        $self->{'_db_adaptor'} = ($dba && $dba->isa('Bio::EnsEMBL::DBSQL::DBAdaptor'))
-            ? $dba
-            : undef;
-        if ($self->{'_db_adaptor'} && $update_other_fields) {
-            my $was_connected = $self->{'_db_adaptor'}{_dbc}->connected;
-            $self->name( $self->{'_db_adaptor'}->get_MetaContainer->get_production_name );
-            $self->assembly( $self->{'_db_adaptor'}->assembly_name );
-            $self->taxon_id( $self->{'_db_adaptor'}->get_MetaContainer->get_taxonomy_id );
-            $self->genebuild( $self->{'_db_adaptor'}->get_MetaContainer->get_genebuild );
-            $self->has_karyotype( $self->{'_db_adaptor'}->get_GenomeContainer->has_karyotype );
-	    $self->{'_db_adaptor'}{_dbc}->disconnect_if_idle unless $was_connected;
+        assert_ref($dba, 'Bio::EnsEMBL::DBSQL::DBAdaptor', 'db_adaptor');
+        throw('$db_adaptor must refer to a Core database') unless $dba->group eq 'core';
+        $self->{'_db_adaptor'} = $dba;
+        if ($update_other_fields) {
+            my $was_connected       = $dba->{_dbc}->connected;
+            my $meta_container      = $dba->get_MetaContainer;
+            my $genome_container    = $dba->get_GenomeContainer;
+
+            $self->name( $meta_container->get_production_name );
+            $self->assembly( $dba->assembly_name );
+            $self->taxon_id( $meta_container->get_taxonomy_id );
+            $self->genebuild( $meta_container->get_genebuild );
+            $self->has_karyotype( $genome_container->has_karyotype );
+            $self->is_high_coverage( $genome_container->is_high_coverage );
+            $self->strain_name( $meta_container->single_value_by_key('species.strain') );
+            $self->display_name( $meta_container->single_value_by_key('species.display_name') );
+            $dba->{_dbc}->disconnect_if_idle unless $was_connected;
         }
     }
 
@@ -205,7 +227,7 @@ sub _check_equals {
     my ($self, $ref_genome_db) = @_;
 
     my $diffs = '';
-    foreach my $field (qw(assembly taxon_id genebuild name has_karyotype is_high_coverage)) {
+    foreach my $field (qw(assembly taxon_id genebuild name strain_name display_name has_karyotype is_high_coverage)) {
         if (($self->$field() xor $ref_genome_db->$field()) or ($self->$field() and $ref_genome_db->$field() and ($self->$field() ne $ref_genome_db->$field()))) {
             $diffs .= sprintf("%s differs between this GenomeDB (%s) and the reference one (%s)\n", $field, $self->$field(), $ref_genome_db->$field());
         }
@@ -572,6 +594,72 @@ sub component_genome_dbs {
 }
 
 
+#######################
+# Methods for strains #
+#######################
+
+=head2 strain_name
+
+  Example     : my $strain_name = $genome_db->strain_name();
+  Example     : $genome_db->strain_name($strain_name);
+  Description : The strain name of this genome
+  Returntype  : string
+  Exceptions  : none
+  Caller      : general
+  Status      : Stable
+
+=cut
+
+sub strain_name {
+    my $self = shift;
+    $self->{'_strain_name'} = shift if @_;
+    return $self->{'_strain_name'};
+}
+
+
+#######################
+# Methods for display #
+#######################
+
+=head2 display_name
+
+  Example     : my $display_name = $genome_db->display_name();
+  Example     : $genome_db->display_name($display_name);
+  Description : The display name of this genome
+  Returntype  : string
+  Exceptions  : none
+  Caller      : general
+  Status      : Stable
+
+=cut
+
+sub display_name {
+    my $self = shift;
+    $self->{'_display_name'} = shift if @_;
+    return $self->{'_display_name'};
+}
+
+
+=head2 get_scientific_name
+
+  Example     : my $get_scientific_name = $genome_db->get_scientific_name();
+  Description : Returns the scientific name of this GenomeDB (incl. the strain and component names)
+  Returntype  : string
+  Exceptions  : none
+  Caller      : general
+  Status      : Stable
+
+=cut
+
+sub get_scientific_name {
+    my $self = shift;
+    my $n = $self->taxon_id ? (($self->{'_taxon'} || $self->adaptor) ? $self->taxon->scientific_name : $self->taxon_id) : $self->name;
+    $n .= " " . $self->strain_name if $self->strain_name;
+    $n .= sprintf(' (component %s)', $self->genome_component) if $self->genome_component;
+    return $n;
+}
+
+
 =head2 toString
 
   Example    : print $dbID->toString()."\n";
@@ -585,8 +673,8 @@ sub component_genome_dbs {
 
 sub toString {
     my $self = shift;
-    my $txt = sprintf('GenomeDB dbID=%s %s (%s)', ($self->dbID || '?'), ($self->genome_component ? ($self->name . ' component ' . $self->genome_component) : $self->name), $self->assembly);
-    $txt .= ' taxon_id='.$self->taxon_id if $self->taxon_id;
+    my $txt = sprintf('GenomeDB dbID=%s %s (%s)', ($self->dbID || '?'), $self->name, $self->assembly);
+    $txt .= ' scientific_name='.$self->get_scientific_name if $self->taxon_id;
     $txt .= sprintf(' genebuild="%s"', $self->genebuild);
     $txt .= ', ' . ($self->is_high_coverage ? 'high' : 'low') . ' coverage';
     $txt .= ', ' . ($self->has_karyotype ? 'with' : 'without') . ' karyotype';

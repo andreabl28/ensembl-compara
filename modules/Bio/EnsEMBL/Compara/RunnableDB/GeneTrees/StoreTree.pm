@@ -399,7 +399,7 @@ sub parse_newick_into_tree {
   # check here on the leaf to test if they all are GeneTreeMembers as
   # minimize_tree/minimize_node might not work properly
   foreach my $leaf (@{$tree->root->get_all_leaves}) {
-    assert_ref($leaf, 'Bio::EnsEMBL::Compara::GeneTreeMember');
+    assert_ref($leaf, 'Bio::EnsEMBL::Compara::GeneTreeMember', 'tree leaf');
   }
   $self->interpret_treebest_tags($tree->root, $ref_support);
   return $tree;
@@ -629,6 +629,56 @@ sub call_hcs_all_trees {
     $self->param('gene_tree_id', $ini_gene_tree_id);
 }
 
+sub examl_exe_decision {
+    my $self = shift;
+    my $avx = `grep avx /proc/cpuinfo`;
 
+    if ($avx) {
+        $self->param( 'examl_exe', $self->param('examl_exe_avx') );
+        $avx = "AVX";
+    }
+    else {
+        $self->param( 'examl_exe', $self->param('examl_exe_sse3') );
+        $avx = "SSE3";
+    }
+
+    print "CPU type: $avx\n" if ( $self->debug );
+
+    return;
+
+}
+
+sub raxml_exe_decision {
+    my $self = shift;
+    my $no_cores = $self->param('raxml_number_of_cores');
+
+    my $avx = `grep avx /proc/cpuinfo`;
+    if ($avx) {
+        $avx = "AVX";
+        if ( (defined $no_cores) && ($no_cores >= 2) ) {
+            $self->param( 'raxml_exe', $self->param('raxml_pthread_exe_avx') );
+            $self->param( 'extra_raxml_args', ($self->param('extra_raxml_args')//'')." -T $no_cores ");
+        }
+        else{
+            $self->param( 'raxml_exe', $self->param('raxml_exe_avx') );
+        }    
+    }
+    else {
+        $self->param( 'examl_exe', $self->param('examl_exe_sse3') );
+        $avx = "SSE3";
+        if ( (defined $no_cores) && ($no_cores >= 2) ) {
+            $self->param( 'raxml_exe', $self->param('raxml_pthread_exe_sse3') );
+            $self->param( 'extra_raxml_args', ($self->param('extra_raxml_args')//'')." -T $no_cores ");
+        }
+        else{
+            $self->param( 'raxml_exe', $self->param('raxml_exe_sse3') );
+        }
+    }
+
+    print "CPU type: $avx\n" if ( $self->debug );
+
+    return;
+
+}
 
 1;

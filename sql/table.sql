@@ -155,6 +155,8 @@ CREATE TABLE genome_db (
   has_karyotype			tinyint(1) NOT NULL DEFAULT 0,
   is_high_coverage            tinyint(1) NOT NULL DEFAULT 0,
   genome_component            varchar(5) DEFAULT NULL,
+  strain_name                 varchar(40) DEFAULT NULL,
+  display_name                varchar(255) DEFAULT NULL,
   locator                     varchar(400),
   first_release               smallint,
   last_release                smallint,
@@ -596,6 +598,8 @@ CREATE TABLE synteny_region (
 @column genome_db_id       External reference to genome_db_id in the @link genome_db table
 @column coord_system_name  Refers to the coord system in which this dnafrag has been defined
 @column is_reference       Boolean, whether dnafrag is reference (1) or non-reference (0) eg haplotype
+@column cellular_component Either "NUC", "MT" or "PT". Represents which genome the dnafrag is part of
+@column codon_table_id     Integer. The numeric identifier of the codon-table that applies to this dnafrag (https://www.ncbi.nlm.nih.gov/Taxonomy/Utils/wprintgc.cgi)
 
 @see genomic_align_block
 @see dnafrag_region
@@ -607,7 +611,9 @@ CREATE TABLE dnafrag (
   name                        varchar(255) DEFAULT '' NOT NULL,
   genome_db_id                int(10) unsigned NOT NULL, # FK genome_db.genome_db_id
   coord_system_name           varchar(40) DEFAULT '' NOT NULL,
+  cellular_component          ENUM('NUC', 'MT', 'PT') DEFAULT 'NUC' NOT NULL,
   is_reference                tinyint(1) DEFAULT 1 NOT NULL,
+  codon_table_id              tinyint(2) unsigned DEFAULT 1 NOT NULL,
 
   FOREIGN KEY (genome_db_id) REFERENCES genome_db(genome_db_id),
 
@@ -933,6 +939,7 @@ CREATE TABLE sequence (
 @column source_name           The source of the member
 @column taxon_id              External reference to taxon_id in the @link ncbi_taxa_node table
 @column genome_db_id          External reference to genome_db_id in the @link genome_db table
+@column biotype_group         Biotype of this gene.
 @column canonical_member_id   External reference to seq_member_id in the @link seq_member table to allow linkage from a gene to its canonical peptide
 @column description           The description of the gene/protein as described in the core database or from the Uniprot entry
 @column dnafrag_id            External reference to dnafrag_id in the @link dnafrag table. It shows the dnafrag the member is on.
@@ -951,6 +958,7 @@ CREATE TABLE gene_member (
   source_name                 ENUM('ENSEMBLGENE', 'EXTERNALGENE') NOT NULL,
   taxon_id                    int(10) unsigned NOT NULL, # FK taxon.taxon_id
   genome_db_id                int(10) unsigned, # FK genome_db.genome_db_id
+  biotype_group               ENUM('coding', 'snoncoding', 'lnoncoding', 'mnoncoding', 'LRG') NOT NULL DEFAULT 'coding',
   canonical_member_id         int(10) unsigned, # FK seq_member.seq_member_id
   description                 text DEFAULT NULL,
   dnafrag_id                  bigint unsigned, # FK dnafrag.dnafrag_id
@@ -1022,6 +1030,8 @@ CREATE TABLE gene_member_hom_stats (
 @column genome_db_id          External reference to genome_db_id in the @link genome_db table
 @column sequence_id           External reference to sequence_id in the @link sequence table. May be 0 when the sequence is not available in the @link sequence table, e.g. for a gene instance
 @column gene_member_id        External reference to gene_member_id in the @link gene_member table to allow linkage from peptides and transcripts to genes
+@column has_transcript_edits  Boolean. Whether there are SeqEdits that modify the transcript sequence. When this happens, the (exon) coordinates don't match the transcript sequence
+@column has_translation_edits Boolean. Whether there are SeqEdits that modify the protein sequence. When this happens, the protein sequence doesn't match the transcript sequence
 @column description           The description of the gene/protein as described in the core database or from the Uniprot entry
 @column dnafrag_id            External reference to dnafrag_id in the @link dnafrag table. It shows the dnafrag the member is on.
 @column dnafrag_start         Starting position within the dnafrag defined by dnafrag_id
@@ -1041,6 +1051,8 @@ CREATE TABLE seq_member (
   genome_db_id                int(10) unsigned, # FK genome_db.genome_db_id
   sequence_id                 int(10) unsigned, # FK sequence.sequence_id
   gene_member_id              int(10) unsigned, # FK gene_member.gene_member_id
+  has_transcript_edits        tinyint(1) DEFAULT 0 NOT NULL,
+  has_translation_edits       tinyint(1) DEFAULT 0 NOT NULL,
   description                 text DEFAULT NULL,
   dnafrag_id                  bigint unsigned, # FK dnafrag.dnafrag_id
   dnafrag_start               int(10),
@@ -1063,6 +1075,35 @@ CREATE TABLE seq_member (
   KEY dnafrag_id_end (dnafrag_id,dnafrag_end),
   KEY seq_member_gene_member_id_end (seq_member_id,gene_member_id)
 ) MAX_ROWS = 100000000 COLLATE=latin1_swedish_ci ENGINE=MyISAM;
+
+
+/**
+@table exon_boundaries
+@desc  This table stores the exon coordinates of a seq_member. Coordinates are assumed to be on the dnafrag of the seq_member
+@colour   #1E90FF
+
+@column gene_member_id          External reference to gene_member_id in the @link gene_member table to allow querying all the exons of all the translations of a gene
+@column seq_member_id           External reference to seq_member_id in the @link seq_member table to indicate which translation the exons refer to
+@column dnafrag_start           Starting position within the dnafrag defined by the dnafrag_id of the seq_member
+@column dnafrag_end             Ending position within the dnafrag defined by the dnafrag_id of the seq_member
+@column sequence_length         Length of the chunk of the sequence that corresponds to this exon
+@column left_over               Phase information (0, 1 or 2) used to produce the "exon_bounded" sequence
+
+@see seq_member
+@see gene_member
+@see dnafrag
+*/
+
+CREATE TABLE exon_boundaries (
+	gene_member_id   INT(10) UNSIGNED NOT NULL,
+	seq_member_id    INT(10) UNSIGNED NOT NULL,
+	dnafrag_start    INT NOT NULL,
+	dnafrag_end      INT NOT NULL,
+	sequence_length  INT(10) UNSIGNED NOT NULL,
+	left_over        TINYINT(1) DEFAULT 0 NOT NULL,
+	INDEX (seq_member_id),
+	INDEX (gene_member_id)
+) ENGINE=MyISAM;
 
 
 /**
@@ -2085,4 +2126,18 @@ INSERT INTO meta (species_id, meta_key, meta_value)
   VALUES (NULL, 'patch', 'patch_87_88_a.sql|schema_version');
 INSERT INTO meta (species_id, meta_key, meta_value)
   VALUES (NULL, 'patch', 'patch_87_88_b.sql|dnafrag_name_255');
+INSERT INTO meta (species_id, meta_key, meta_value)
+  VALUES (NULL, 'patch', 'patch_87_88_c.sql|codon_table_id');
+INSERT INTO meta (species_id, meta_key, meta_value)
+  VALUES (NULL, 'patch', 'patch_87_88_d.sql|cellular_component');
+INSERT INTO meta (species_id, meta_key, meta_value)
+  VALUES (NULL, 'patch', 'patch_87_88_e.sql|biotype_group');
+INSERT INTO meta (species_id, meta_key, meta_value)
+  VALUES (NULL, 'patch', 'patch_87_88_f.sql|has_seq_edits');
+INSERT INTO meta (species_id, meta_key, meta_value)
+  VALUES (NULL, 'patch', 'patch_87_88_g.sql|genome_db.strain_name');
+INSERT INTO meta (species_id, meta_key, meta_value)
+  VALUES (NULL, 'patch', 'patch_87_88_h.sql|exon_boundaries');
+INSERT INTO meta (species_id, meta_key, meta_value)
+  VALUES (NULL, 'patch', 'patch_87_88_i.sql|genome_db.display_name');
 

@@ -75,7 +75,7 @@ sub default_options {
 #       'ce_mlss_id'            => 523,   # it is very important to check that this value is current (commented out to make it obligatory to specify)
 	#conservation score mlss_id
 #       'cs_mlss_id'            => 50029, # it is very important to check that this value is current (commented out to make it obligatory to specify)
-	'dbname'                => $ENV{USER}.'_pecan_23way_'.$self->o('rel_with_suffix'),
+	'pipeline_name'         => 'pecan_23way',
         'work_dir'              => '/lustre/scratch110/ensembl/' . $ENV{'USER'} . '/scratch/hive/release_' . $self->o('rel_with_suffix') . '/' . $self->o('dbname'),
 	'do_not_reuse_list'     => [ ],     # genome_db_ids of species we don't want to reuse this time. This is normally done automatically, so only need to set this if we think that this will not be picked up automatically.
 #	'do_not_reuse_list'     => [ 142 ],     # names of species we don't want to reuse this time. This is normally done automatically, so only need to set this if we think that this will not be picked up automatically.
@@ -96,13 +96,12 @@ sub default_options {
         'species_tree_file'     => $self->o('ensembl_cvs_root_dir').'/ensembl-compara/scripts/pipeline/species_tree.23amniots.branch_len.nw', 
 
     #master database
-        'master_db_name' => 'mm14_ensembl_compara_master',
+        'master_db'     => 'mysql://ensro@compara1/mm14_ensembl_compara_master',
 
     # Mercator default parameters
     'strict_map'        => 1,
 #    'cutoff_score'     => 100,   #not normally defined
 #    'cutoff_evalue'    => 1e-5, #not normally defined
-    'method_link_type'  => "SYNTENY",
     'maximum_gap'       => 50000,
     'input_dir'         => $self->o('work_dir').'/mercator',
     'all_hits'          => 0,
@@ -146,15 +145,6 @@ sub default_options {
             -user   => 'ensadmin',
             -pass   => $self->o('password'),                    
             -dbname => $ENV{'USER'}.'_pecan_23way_'.$self->o('rel_with_suffix'),
-	    -driver => 'mysql',
-        },
-
-        'master_db' => {                        # the master database for synchronization of various ids
-            -host   => 'compara1',
-            -port   => 3306,
-            -user   => 'ensro',
-            -pass   => '',
-            -dbname => 'mm14_ensembl_compara_master',
 	    -driver => 'mysql',
         },
 
@@ -233,6 +223,7 @@ sub pipeline_wide_parameters {  # these parameter values are visible to all anal
     my ($self) = @_;
     return {
         %{$self->SUPER::pipeline_wide_parameters},          # here we inherit anything from the base class
+        'mlss_id'        => $self->o('mlss_id'),
     };
 }
 
@@ -277,12 +268,9 @@ sub pipeline_analyses {
 	       -module     => 'Bio::EnsEMBL::Hive::RunnableDB::SystemCmd',
 	       -parameters    => {
 				  'program'        => $self->o('populate_new_database_exe'),
-				  'master'         => $self->o('master_db_name'),
-				  'new_db'         => $self->o('dbname'),
-				  'mlss_id'        => $self->o('mlss_id'),
 				  'ce_mlss_id'     => $self->o('ce_mlss_id'),
 				  'cs_mlss_id'     => $self->o('cs_mlss_id'),
-				  'cmd'            => "#program# --master " . $self->dbconn_2_url('master_db') . " --new " . $self->pipeline_url() . " --mlss #mlss_id# --mlss #ce_mlss_id# --mlss #cs_mlss_id# ",
+				  'cmd'            => "#program# --master " . $self->o('master_db') . " --new " . $self->pipeline_url() . " --mlss #mlss_id# --mlss #ce_mlss_id# --mlss #cs_mlss_id# ",
 				 },
                -input_ids => [{}],
 	       -flow_into => {
@@ -309,7 +297,6 @@ sub pipeline_analyses {
 	    {   -logic_name => 'set_internal_ids',
 		-module     => 'Bio::EnsEMBL::Hive::RunnableDB::SqlCmd',
 		-parameters => {
-				'mlss_id' => $self->o('mlss_id'),
 				'sql'   => [
 					    'ALTER TABLE genomic_align_block AUTO_INCREMENT=#expr((#mlss_id# * 10**10) + 1)expr#',
 					    'ALTER TABLE genomic_align AUTO_INCREMENT=#expr((#mlss_id# * 10**10) + 1)expr#',
@@ -327,7 +314,6 @@ sub pipeline_analyses {
             -module     => 'Bio::EnsEMBL::Compara::RunnableDB::GenomeDBFactory',
             -parameters => {
                 'compara_db'    => $self->o('master_db'),   # that's where genome_db_ids come from
-                'mlss_id'       => $self->o('mlss_id'),
 
                 'extra_parameters'      => [ 'locator' ],
             },
@@ -379,7 +365,6 @@ sub pipeline_analyses {
         {   -logic_name => 'create_mlss_ss',
             -module     => 'Bio::EnsEMBL::Compara::RunnableDB::GeneTrees::PrepareSpeciesSetsMLSS',
             -parameters => {
-                'mlss_id'   => $self->o('mlss_id'),
                 'master_db' => $self->o('master_db'),
 				'tree_method_link' => 'PECAN',
             },
@@ -390,7 +375,6 @@ sub pipeline_analyses {
         {   -logic_name    => 'make_species_tree',
             -module        => 'Bio::EnsEMBL::Compara::RunnableDB::MakeSpeciesTree',
             -parameters    => { 
-                               'mlss_id' => $self->o('mlss_id'),
                                'blength_tree_file' => $self->o('species_tree_file'),
                               },
             -flow_into => {
@@ -509,9 +493,17 @@ sub pipeline_analyses {
             -module     => 'Bio::EnsEMBL::Compara::RunnableDB::GenomeDBFactory',
             -rc_name       => '100Mb',
             -flow_into  => {
-                '2->A'  => [ 'fresh_dump_subset_fasta' ],
+                '2->A'  => [ 'delete_non_nuclear_genes' ],
                 'A->1'  => [ 'blast_species_factory' ],
             },
+        },
+
+        {   -logic_name => 'delete_non_nuclear_genes',
+            -module     => 'Bio::EnsEMBL::Hive::RunnableDB::SqlCmd',
+            -parameters => {
+                'sql' => 'DELETE seq_member FROM seq_member JOIN dnafrag USING (dnafrag_id) WHERE cellular_component != "NUC"',
+            },
+            -flow_into  => [ 'fresh_dump_subset_fasta' ],
         },
 
         {   -logic_name => 'fresh_dump_subset_fasta',
@@ -561,7 +553,6 @@ sub pipeline_analyses {
             -parameters    => {
                 'blast_params'      => $self->o('blast_params'),
                 'blast_bin_dir'     => $self->o('blast_bin_dir'),
-		'mlss_id'      => $self->o('mlss_id'),
 		'fasta_dir'    => $self->o('blastdb_dir'),
             },
             -batch_size => 10,
@@ -574,9 +565,6 @@ sub pipeline_analyses {
 
          {   -logic_name => 'mercator_file_factory',
              -module     => 'Bio::EnsEMBL::Compara::RunnableDB::MercatorPecan::MercatorFileFactory',
-             -parameters => { 
-			     'mlss_id' => $self->o('mlss_id'),
-			    },
             -hive_capacity => 1,
 	    -flow_into => { 
 			    'A->1' => { 'mercator' => undef },
@@ -596,9 +584,8 @@ sub pipeline_analyses {
 
          {   -logic_name => 'mercator',
              -module     => 'Bio::EnsEMBL::Compara::RunnableDB::MercatorPecan::Mercator',
-             -parameters => {'mlss_id'   => $self->o('mlss_id'),
+             -parameters => {
 			     'input_dir' => $self->o('input_dir'),
-			     'method_link_type' => $self->o('method_link_type'),
 			    },
              -hive_capacity => 1,
 	     -rc_name => '3.6Gb',
@@ -615,7 +602,6 @@ sub pipeline_analyses {
              -parameters => {
                  'max_block_size'             => $self->o('max_block_size'),
                  'java_options'               => $self->o('java_options'),
-                 'mlss_id'                    => $self->o('mlss_id'),
 		 'jar_file'                   => $self->o('jar_file'),
                  'exonerate'                  => $self->o('exonerate_exe'),
              },
@@ -636,7 +622,6 @@ sub pipeline_analyses {
              -parameters => {
                  'max_block_size'             => $self->o('max_block_size'),
                  'java_options'               => $self->o('java_options_mem1'),
-                 'mlss_id'                    => $self->o('mlss_id'),
 		 'jar_file'                   => $self->o('jar_file'),
                  'exonerate'                  => $self->o('exonerate_exe'),
              },
@@ -655,7 +640,6 @@ sub pipeline_analyses {
              -parameters => {
                  'max_block_size'             => $self->o('max_block_size'),
                  'java_options'               => $self->o('java_options_mem2'),
-                 'mlss_id'                    => $self->o('mlss_id'),
                  'jar_file'                   => $self->o('jar_file'),
                  'exonerate'                  => $self->o('exonerate_exe'),
              },
@@ -674,7 +658,6 @@ sub pipeline_analyses {
              -parameters => {
                  'max_block_size'             => $self->o('max_block_size'),
                  'java_options'               => $self->o('java_options_mem3'),
-                 'mlss_id'                    => $self->o('mlss_id'),
                  'jar_file'                   => $self->o('jar_file'),
                  'exonerate'                  => $self->o('exonerate_exe'),
              },
@@ -694,7 +677,6 @@ sub pipeline_analyses {
 		 'program_version' => $self->o('gerp_version'),
                  'window_sizes'    => $self->o('window_sizes'),
 		 'gerp_exe_dir'    => $self->o('gerp_exe_dir'),
-                 'mlss_id'         => $self->o('mlss_id'),  #to retrieve species_tree from mlss_tag table
 #                 'constrained_element_method_link_type' => $self->o('constrained_element_type'),
              },
              -hive_capacity => 500,  
@@ -709,7 +691,6 @@ sub pipeline_analyses {
 		 'program_version' => $self->o('gerp_version'),
                  'window_sizes'    => $self->o('window_sizes'),
 		 'gerp_exe_dir'    => $self->o('gerp_exe_dir'),
-                 'mlss_id'         => $self->o('mlss_id'),  #to retrieve species_tree from mlss_tag table
              },
             -hive_capacity => 500,  
 	     -rc_name => 'higerp',
@@ -718,7 +699,7 @@ sub pipeline_analyses {
  	 {  -logic_name => 'update_max_alignment_length',
 	    -module     => 'Bio::EnsEMBL::Compara::RunnableDB::GenomicAlignBlock::UpdateMaxAlignmentLength',
 	    -parameters => { 
-			    'method_link_species_set_id' => $self->o('mlss_id'),
+			    'method_link_species_set_id' => '#mlss_id#',
 
 			   },
 	    -flow_into => { 
@@ -768,7 +749,6 @@ sub pipeline_analyses {
 			      'bed_dir' => $self->o('bed_dir'),
 			      'ensembl_release' => $self->o('ensembl_release'),
 			      'output_dir' => $self->o('output_dir'),
-                              'mlss_id'   => $self->o('mlss_id'),
 			     },
 	      -rc_name => '3.6Gb',             
               -hive_capacity => 100,  
@@ -776,9 +756,6 @@ sub pipeline_analyses {
 
         {   -logic_name => 'block_size_distribution',
             -module     => 'Bio::EnsEMBL::Compara::RunnableDB::GenomicAlignBlock::MultipleAlignerBlockSize',
-            -parameters => {
-                'mlss_id'   => $self->o('mlss_id'),
-            },
         },
 
         {   -logic_name => 'email_stats_report',

@@ -170,7 +170,7 @@ sub new_from_Transcript {
 
     my ($transcript, $genome_db, $translate, $dnafrag) = rearrange([qw(TRANSCRIPT GENOME_DB TRANSLATE DNAFRAG)], @args);
 
-    assert_ref($transcript, 'Bio::EnsEMBL::Transcript');
+    assert_ref($transcript, 'Bio::EnsEMBL::Transcript', 'transcript');
 
     my $seq_string;
     my ($start, $end) = ($transcript->seq_region_start, $transcript->seq_region_end);
@@ -221,6 +221,11 @@ sub new_from_Transcript {
         _sequence => $seq_string,
         _seq_length => length($seq_string),
         _description => $transcript->description,
+
+        # "_rna_edit" attributes mean that the transcript sequence won't match the DNA. This can cause problems if we rely on precise genomic coordinates
+        _has_transcript_edits   => (scalar(@{$transcript->get_all_SeqEdits('_rna_edit')}) ? 1 : 0),
+        # "amino_acid_sub" attributes mean that the protein sequence won't match the transcript sequence. We only afford them if they don't shift the sequence and are small enough (less than 5aa)
+        _has_translation_edits  => (($translate && scalar(grep {$_->length_diff && length($_->alt_seq)>=5} @{$transcript->translation->get_all_SeqEdits('amino_acid_sub')})) ? 1 : 0),
     });
     $seq_member->{core_transcript} = $transcript;
     return $seq_member;
@@ -359,34 +364,22 @@ sub _prepare_exon_sequences {
 
     # If there is the exon_bounded sequence, it is only a matter of splitting it and alternating the case
     my $exon_bounded_seq = $self->{_sequence_exon_bounded};
-    $exon_bounded_seq = $self->adaptor->db->get_SequenceAdaptor->fetch_other_sequence_by_member_id_type($self->seq_member_id, 'exon_bounded') unless $exon_bounded_seq;
 
     if ($exon_bounded_seq) {
         $self->{_sequence_exon_bounded} = $exon_bounded_seq;
         my $i = 0;
         $self->{_sequence_exon_cased} = join('', map {$i++%2 ? lc($_) : $_} split( /[boj]/, $exon_bounded_seq));
 
-    # If the SeqMember comes from a fasta file there is no Transcript
-    } elsif ($self->source_name =~ /^ENSEMBL/) {
+    } else {
 
         my $sequence = $self->sequence;
-        my $transcript = $self->get_Transcript;
 
-        my @exons;
-        my @seq_edits;
-        my $scale_factor;
-        if ($transcript->translation) {
-            @exons = @{$transcript->get_all_translateable_Exons};
-            @seq_edits = @{$transcript->translation->get_all_SeqEdits('amino_acid_sub')};
-            $scale_factor = 3;
-        } else {
-            @exons = @{$transcript->get_all_Exons};
-            $scale_factor = 1;
-        }
-        push @seq_edits, @{$transcript->get_all_SeqEdits('_rna_edit')};
+        # List of quadruplets [start, end, sequence_length, left_over]
+        my @exons = @{ $self->adaptor->db->get_SeqMemberAdaptor->fetch_exon_boundaries_by_SeqMember($self) };
+        my $scale_factor = $self->source_name =~ /PEP/ ? 3 : 1;
 
         # @exons probably don't match the sequence if there are such edits
-        if (((scalar @exons) <= 1) or (scalar(@seq_edits) > 0)) {
+        if (((scalar @exons) <= 1) or $self->has_transcript_edits or $self->has_translation_edits) {
             $self->{_sequence_exon_cased} = $sequence;
             $self->{_sequence_exon_bounded} = $sequence;
             return;
@@ -394,20 +387,19 @@ sub _prepare_exon_sequences {
 
         # Otherwise, we have to parse the exons
         my %boundary_chars = (0 => 'o', 1 => 'b', 2 => 'j');
-        my $left_over = $exons[0]->phase > 0 ? -$exons[0]->phase : 0;
         my @this_seq = ();
         my @exon_sequences = ();
         foreach my $exon (@exons) {
-            my $exon_pep_len = POSIX::ceil(($exon->length - $left_over) / $scale_factor);
+            my $exon_pep_len = $exon->[2];
+            my $left_over = $exon->[3];
             my $exon_seq = substr($sequence, 0, $exon_pep_len, '');
-            $left_over += $scale_factor*$exon_pep_len - $exon->length;
-            #printf("%s: exon of len %d -> phase %d: %s\n", $transcript->stable_id, $exon_pep_len, $left_over, $exon_seq);
+            #printf("%s: exon of len %d -> phase %d: %s\n", $self->stable_id, $exon_pep_len, $left_over, $exon_seq);
             push @this_seq, $exon_seq;
             push @this_seq, $boundary_chars{$left_over};
             push @exon_sequences, scalar(@exon_sequences)%2 ? $exon_seq : lc($exon_seq);
             die sprintf('Invalid phase: %s', $left_over) unless exists $boundary_chars{$left_over}
         }
-        die sprintf('%d characters left in the sequence of %s', length($sequence), $transcript->stable_id) if $sequence;
+        die sprintf('%d characters left in the sequence of %s', length($sequence), $self->stable_id) if $sequence;
         pop @this_seq;
         $self->{_sequence_exon_bounded} = join('', @this_seq);
         $self->{_sequence_exon_cased} = join('', @exon_sequences);
@@ -539,7 +531,7 @@ sub gene_member {
   my $gene_member = shift;
 
   if ($gene_member) {
-    assert_ref($gene_member, 'Bio::EnsEMBL::Compara::GeneMember');
+    assert_ref($gene_member, 'Bio::EnsEMBL::Compara::GeneMember', 'gene_member');
     $self->{'_gene_member'} = $gene_member;
   }
   if(!defined($self->{'_gene_member'}) and
@@ -613,6 +605,47 @@ sub get_Translation {
     my $transcript = $self->get_Transcript;
     return undef unless $transcript;
     return $transcript->translation();
+}
+
+
+=head2 has_transcript_edits
+
+  Example     : my $has_transcript_edits = $seq_member->has_transcript_edits();
+  Example     : $seq_member->has_transcript_edits(1);
+  Description : Tells whether the SeqMember has SeqEdits at the Transcript level.
+                When this happens, the (exon) coordinates don't match the transcript sequence
+  Returntype  : Boolean
+  Exceptions  : none
+  Caller      : general
+  Status      : Stable
+
+=cut
+
+sub has_transcript_edits {
+    my $self = shift;
+    $self->{'_has_transcript_edits'} = shift if @_;
+    return $self->{'_has_transcript_edits'};
+}
+
+
+=head2 has_translation_edits
+
+  Example     : my $has_translation_edits = $seq_member->has_translation_edits();
+  Example     : $seq_member->has_translation_edits(1);
+  Description : Tells whether the SeqMember has SeqEdits at the Translation level.
+                When this happens, the protein sequence doesn't match the transcript sequence
+                Note: only relevant for protein-coding genes
+  Returntype  : Boolean
+  Exceptions  : none
+  Caller      : general
+  Status      : Stable
+
+=cut
+
+sub has_translation_edits {
+    my $self = shift;
+    $self->{'_has_translation_edits'} = shift if @_;
+    return $self->{'_has_translation_edits'};
 }
 
 

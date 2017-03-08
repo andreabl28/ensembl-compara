@@ -152,15 +152,14 @@ sub run {
 sub write_output {
 	my $self = shift;
 
-	my @exon_dataflow;
-	foreach my $gdb_id ( @{ $self->param('genome_db_ids') } ) {
-		push( @exon_dataflow, { genome_db_id => $gdb_id } );
-	}
-
-	$self->dataflow_output_id( \@exon_dataflow, 2 ); # to prepare_exons
-	$self->dataflow_output_id( { genome_db_pairs => $self->param('genome_db_pairs') }, 1 ); # to exon_funnel
+	$self->dataflow_output_id( $self->param('genome_db_pairs'), 2 ); # array of input_ids to select_mlss
 	
-	$self->dataflow_output_id( { aln_mlss_ids => $self->param('aln_mlss_ids') }, 3 ); # to reset_mlss
+	# Removes all scores in the ortholog_quality table associated with the list of input MLSS
+	my $mlss_ids = $self->param('aln_mlss_ids');
+
+	if ( defined $mlss_ids && scalar( @{$mlss_ids} ) ) {
+            $self->dataflow_output_id( { aln_mlss_id => $_ }, 3 ) for @{$mlss_ids}; # to reset_mlss
+        }
 }
 
 1;

@@ -47,7 +47,7 @@ use strict;
 use warnings;
 
 
-use base ('Bio::EnsEMBL::Compara::PipeConfig::ProteinTrees_conf');
+use base ('Bio::EnsEMBL::Compara::PipeConfig::Example::EBIProteinTrees_conf');
 
 
 sub default_options {
@@ -57,7 +57,6 @@ sub default_options {
         %{$self->SUPER::default_options},   # inherit the generic ones
 
     # User details
-        'email'                 => $self->o('ENV', 'USER').'@ebi.ac.uk',
 
     # parameters that are likely to change from execution to another:
         # You can add a letter to distinguish this run from other runs on the same release
@@ -66,13 +65,16 @@ sub default_options {
         'do_not_reuse_list'     => [ ],
 
     # custom pipeline name, in case you don't like the default one
+        # 'rel_with_suffix' is the concatenation of 'ensembl_release' and 'rel_suffix'
         'pipeline_name'         => 'protein_trees_'.$self->o('rel_with_suffix'),
         # Tag attached to every single tree
         'division'              => 'ensembl',
 
+    #default parameters for the geneset qc
+
+
     # dependent parameters: updating 'base_dir' should be enough
-        'base_dir'              => '/panfs/nobackup/production/ensembl/'.$self->o('ENV', 'USER').'/',
-        'exe_dir'               =>  '/nfs/panda/ensemblgenomes/production/compara/binaries',
+        'base_dir'              => '/hps/nobackup/production/ensembl/'.$self->o('ENV', 'USER').'/',
 
     # "Member" parameters:
         'allow_ambiguity_codes'     => 1,
@@ -82,72 +84,34 @@ sub default_options {
     # clustering parameters:
         # affects 'hcluster_dump_input_per_genome'
         'outgroups'                     => { 'saccharomyces_cerevisiae' => 2 },
-        # (half of the previously used 'clutering_max_gene_count=1500) affects 'hcluster_run'
+        # File with gene / peptide names that must be excluded from the clusters (e.g. know to disturb the trees)
+        'gene_blacklist_file'           => '/nfs/production/panda/ensembl/warehouse/compara/proteintree_blacklist.e82.txt',
 
     # tree building parameters:
         'use_quick_tree_break'      => 0,
-        'use_notung'                => 1,
+        'use_notung'                => 0,
 
     # alignment filtering options
 
     # species tree reconciliation
-        # you can define your own species_tree for 'treebest'. It can contain multifurcations
-#        'species_tree_input_file'   => '/homes/muffato/workspace/species_tree/tf10.347.nh',
-        # you can define your own species_tree for 'notung'. It *has* to be binary
-        'binary_species_tree_input_file'   => undef,
 
-# homology_dnds parameters:
+    # homology_dnds parameters:
         # used by 'homology_dNdS'
         'taxlevels'                 => ['Theria', 'Sauria', 'Tetraodontiformes'],
         # affects 'group_genomes_under_taxa'
         'filter_high_coverage'      => 1,
 
-    # GOC parameters
-        'goc_taxlevels'                 => ["Euteleostomi","Ciona"],
-	'goc_threshold'                 => undef,
-	'reuse_goc'                     => undef,
-        
     # mapping parameters:
         'do_stable_id_mapping'      => 1,
         'do_treefam_xref'           => 1,
         # The TreeFam release to map to
         'tf_release'                => '9_69',
-        
+
     # executable locations:
-        'hcluster_exe'              => $self->o('exe_dir').'/hcluster_sg',
-        'mcoffee_home'              => '/nfs/panda/ensemblgenomes/external/t-coffee',
-        'mafft_home'                => '/nfs/panda/ensemblgenomes/external/mafft',
-        'trimal_exe'                => '/nfs/production/xfam/treefam/software/trimal/source/trimal',
-        'noisy_exe'                 => '/nfs/production/xfam/treefam/software/Noisy-1.5.12/noisy',
-        'prottest_jar'              => '/nfs/production/xfam/treefam/software/ProtTest/prottest-3.4-20140123/prottest-3.4.jar',
-        'treebest_exe'              => $self->o('exe_dir').'/treebest',
-        'raxml_exe'                 => '/nfs/production/xfam/treefam/software/RAxML/raxmlHPC-SSE3',
-        'raxml_pthreads_exe'        => 'UNDEF',
-        'examl_exe_avx'             => 'UNDEF',
-        'examl_exe_sse3'            => 'UNDEF',
-        'parse_examl_exe'           => 'UNDEF',
-        'notung_jar'                => '/nfs/production/xfam/treefam/software/Notung/Notung-2.6/Notung-2.6.jar',
-        'quicktree_exe'             => $self->o('exe_dir').'/quicktree',
-        'hmmer2_home'               => '/nfs/panda/ensemblgenomes/external/hmmer-2/bin/',
-        'hmmer3_home'               => '/nfs/panda/ensemblgenomes/external/hmmer-3.1b2/binaries/',
-        'codeml_exe'                => $self->o('exe_dir').'/codeml',
-        'ktreedist_exe'             => $self->o('exe_dir').'/ktreedist',
-        'blast_bin_dir'             => '/nfs/panda/ensemblgenomes/external/ncbi-blast-2.3.0+/bin/',
-        'pantherScore_path'         => '/nfs/production/xfam/treefam/software/pantherScore1.03/',
-        'cafe_shell'                => 'UNDEF',
-        'fasttree_mp_exe'           => 'UNDEF',
-        'getPatterns_exe'           => '/nfs/production/xfam/treefam/software/RAxML/number_of_patterns/getPatterns',
 
     # HMM specific parameters (set to 0 or undef if not in use)
-        'hmm_library_basedir'   => "/nfs/panda/ensembl/production/mateus/compara/multi_division_hmm_lib/",
-       # List of directories that contain Panther-like databases (with books/ and globals/)
-       # It requires two more arguments for each file: the name of the library, and whether subfamilies should be loaded
-
-       # List of MultiHMM files to load (and their names)
-
-       # Dumps coming from InterPro
-
-       # A file that holds additional tags we want to add to the HMM clusters (for instance: Best-fit models)
+       # The location of the HMM library.
+        'hmm_library_basedir'       => '/hps/nobackup/production/ensembl/compara_ensembl/treefam_hmms/2015-12-18',
 
     # hive_capacity values for some analyses:
         'reuse_capacity'            =>   3,
@@ -182,9 +146,8 @@ sub default_options {
         'mafft_update_capacity'     => 50,
         'raxml_update_capacity'     => 50,
         'ortho_stats_capacity'      => 10,
-        'goc_capacity'              => 200,
-	    'genesetQC_capacity'        => 100,
-    # hive priority for non-LOCAL health_check analysis:
+        'goc_capacity'              => 30,
+	      'genesetQC_capacity'        => 100,
 
     # connection parameters to various databases:
 
@@ -194,28 +157,34 @@ sub default_options {
         # it inherits most of the properties from HiveGeneric, we usually only need to redefine the host, but you may want to also redefine 'port'
 
     pipeline_db => {
-      -host   => 'mysql-treefam-prod',
-      -port   => 4401,
+      -host   => 'mysql-ens-compara-prod-2.ebi.ac.uk',
+      -port   => 4522,
       -user   => 'ensadmin',
-      -pass   => 'ensembl',
+      -pass   => $ENV{'ENSADMIN_PSW'},
       #-dbname => 'TreeFam'.$self->o('release').$self->o('release_suffix'),
       #-dbname => 'treefam_10_mammals_baboon',
       #-dbname => 'ckong_protein_trees_compara_homology_protists_topup24',
-      -dbname => 'waakanni_ensemblENA_protein_trees_86',
+      -dbname => 'waakanni_protein_trees_88',
       -driver => 'mysql',
       #-db_version => $self->o('ensembl_release')
     },
         # the master database for synchronization of various ids (use undef if you don't have a master database)
         #'master_db' => 'mysql://ensro@mysql-e-farm-test56.ebi.ac.uk:4449/muffato_compara_master_20140317',
-        'master_db' => 'mysql://ensadmin:ensembl@mysql-ens-compara-prod-1.ebi.ac.uk:4485/waakanni_compara_master_withENASpecies_84',
+        'master_db' => 'mysql://ensro@mysql-ens-compara-prod-1.ebi.ac.uk:4485/ensembl_compara_master',
 
         # Ensembl-specific databases
+        'staging_loc' => {                     # general location of half of the current release core databases
+            -host   => 'mysql-ens-sta-1',
+            -port   => 4519,
+            -user   => 'ensro',
+            -pass   => '',
+        },
+
         'livemirror_loc' => {                   # general location of the previous release core databases (for checking their reusability)
             -host   => 'mysql-ensembl-mirror.ebi.ac.uk',
             -port   => 4240,
             -user   => 'anonymous',
             -pass   => '',
-            -db_version => 84,
         },
 
         'egmirror_loc' => {                   # general location of the previous release core databases (for checking their reusability)
@@ -232,17 +201,9 @@ sub default_options {
             -pass   => '',
         },
 
-        ena_species_cores => {
-            -host => 'mysql-ens-compara-prod-1.ebi.ac.uk',
-            -user => 'ensro',
-            -port => '4485',
-            #-verbose => 1,
-            -db_version => 80,
-    },
-
         # NOTE: The databases referenced in the following arrays have to be hashes (not URLs)
         # Add the database entries for the current core databases and link 'curr_core_sources_locs' to them
-        'curr_core_sources_locs'    => [ $self->o('livemirror_loc'), $self->o('ena_species_cores') ],
+        'curr_core_sources_locs'    => [ $self->o('staging_loc')],
 
         # Add the database entries for the core databases of the previous release
         'prev_core_sources_locs'   => [ $self->o('livemirror_loc') ],
@@ -250,6 +211,11 @@ sub default_options {
         # Add the database location of the previous Compara release. Leave commented out if running the pipeline without reuse
         #'prev_rel_db' => 'mysql://anonymous@mysql-ensembl-mirror.ebi.ac.uk:4240/ensembl_compara_74',
         #'prev_rel_db' => 'mysql://ensro@mysql-e-farm-test56.ebi.ac.uk:4449/mm14_treefam10_snapshot',
+
+        # If 'prev_rel_db' above is not set, you need to set all the dbs individually
+        'reuse_db'              => 'mysql://ensro@mysql-ens-compara-prod-2.ebi.ac.uk:4522/waakanni_protein_trees_87_copy',
+        'mapping_db'            => 'mysql://ensro@mysql-ens-compara-prod-2.ebi.ac.uk:4522/waakanni_protein_trees_87_copy',
+
 
         # How will the pipeline create clusters (families) ?
         # Possible values: 'blastp' (default), 'hmm', 'hybrid'
@@ -270,10 +236,24 @@ sub default_options {
         #   'trees' is like 'alignments', but also copies the trees  >> UNIMPLEMENTED <<
         #   'homologies is like 'trees', but also copies the homologies  >> UNIMPLEMENTED <<
 
+    # CAFE parameters
         # Do we want to initialise the CAFE part now ?
+        'initialise_cafe_pipeline'  => 1,
+        'use_timetree_times'        => 1,
 
-        #Use Timetree divergence times for the GeneTree internal nodes
-        'use_timetree_times'        => 0,
+    # GOC parameters
+        'goc_taxlevels'                 => ["Euteleostomi","Ciona"],
+
+    # Extra analyses
+        # Export HMMs ?
+        'do_hmm_export'                 => 1,
+        # Do we want the Gene QC part to run ?
+        'do_gene_qc'                    => 1,
+        # Do we extract overall statistics for each pair of species ?
+        'do_homology_stats'             => 1,
+        # Do we need a mapping between homology_ids of this database to another database ?
+        # This parameter is automatically set to 1 when the GOC pipeline is going to run with a reuse database
+        'do_homology_id_mapping'                 => 1,
     };
 }
 
@@ -283,53 +263,62 @@ sub resource_classes {
     return {
         %{$self->SUPER::resource_classes},  # inherit 'default' from the parent class
 
-         'default'      => {'LSF' => '-q production-rh6' },
-         '250Mb_job'    => {'LSF' => '-C0 -q production-rh6 -M250   -R"select[mem>250]   rusage[mem=250]"' },
-         '500Mb_job'    => {'LSF' => '-C0 -q production-rh6 -M500   -R"select[mem>500]   rusage[mem=500]"' },
-         '1Gb_job'      => {'LSF' => '-C0 -q production-rh6 -M1000  -R"select[mem>1000]  rusage[mem=1000]"' },
-         '2Gb_job'      => {'LSF' => '-C0 -q production-rh6 -M2000  -R"select[mem>2000]  rusage[mem=2000]"' },
-         '4Gb_job'      => {'LSF' => '-C0 -q production-rh6 -M4000  -R"select[mem>4000]  rusage[mem=4000]"' },
-         '4Gb_8c_job'   => {'LSF' => '-C0 -q production-rh6 -M4000  -R"select[mem>4000]  rusage[mem=4000]"  -n 8 span[hosts=1]' },
-         '8Gb_job'      => {'LSF' => '-C0 -q production-rh6 -M8000  -R"select[mem>8000]  rusage[mem=8000]"' },
-         '8Gb_8c_job'   => {'LSF' => '-q production-rh6 -M8000  -R"select[mem>8000]  rusage[mem=8000]"  -n 8 span[hosts=1]' },
-         '16Gb_job'     => {'LSF' => '-q production-rh6 -M16000 -R"select[mem>16000] rusage[mem=16000]"' },
-         '32Gb_job'     => {'LSF' => '-q production-rh6 -M32000 -R"select[mem>32000] rusage[mem=32000]"' },
-         '64Gb_job'     => {'LSF' => '-q production-rh6 -M64000 -R"select[mem>64000] rusage[mem=64000]"' },
-         '512Gb_job'     => {'LSF' => '-q production-rh6 -M512000 -R"select[mem>512000] rusage[mem=512000]"' },
+         'default'      => {'LSF' => '-C0 -M100   -R"select[mem>100]   rusage[mem=100]"' },
+         '250Mb_job'    => {'LSF' => '-C0 -M250   -R"select[mem>250]   rusage[mem=250]"' },
+         '500Mb_job'    => {'LSF' => '-C0 -M500   -R"select[mem>500]   rusage[mem=500]"' },
+         '1Gb_job'      => {'LSF' => '-C0 -M1000  -R"select[mem>1000]  rusage[mem=1000]"' },
+         '2Gb_job'      => {'LSF' => '-C0 -M2000  -R"select[mem>2000]  rusage[mem=2000]"' },
+         '4Gb_job'      => {'LSF' => '-C0 -M4000  -R"select[mem>4000]  rusage[mem=4000]"' },
+         '8Gb_job'      => {'LSF' => '-C0 -M8000  -R"select[mem>8000]  rusage[mem=8000]"' },
+         '16Gb_job'     => {'LSF' => '-C0 -M16000 -R"select[mem>16000] rusage[mem=16000]"' },
+         '24Gb_job'     => {'LSF' => '-C0 -M24000 -R"select[mem>24000] rusage[mem=24000]"' },
+         '32Gb_job'     => {'LSF' => '-C0 -M32000 -R"select[mem>32000] rusage[mem=32000]"' },
+         '64Gb_job'     => {'LSF' => '-C0 -M64000 -R"select[mem>64000] rusage[mem=64000]"' },
+         '512Gb_job'    => {'LSF' => '-C0 -M512000 -R"select[mem>512000] rusage[mem=512000]"' },
 
-         '16Gb_8c_job' => {'LSF' => '-q production-rh6 -n 8 -C0 -M16000 -R"select[mem>16000] rusage[mem=16000] span[hosts=1]"' },
-         '32Gb_8c_job' => {'LSF' => '-q production-rh6 -n 8 -C0 -M32000 -R"select[mem>32000] rusage[mem=32000] span[hosts=1]"' },
-         '16Gb_16c_job' => {'LSF' => '-q production-rh6 -n 16 -C0 -M16000 -R"select[mem>16000] rusage[mem=16000] span[hosts=1]"' },
-         '32Gb_16c_job' => {'LSF' => '-q production-rh6 -n 16 -C0 -M16000 -R"select[mem>32000] rusage[mem=32000] span[hosts=1]"' },
-         '64Gb_16c_job' => {'LSF' => '-q production-rh6 -n 16 -C0 -M64000 -R"select[mem>64000] rusage[mem=64000] span[hosts=1]"' },
+         '4Gb_8c_job'   => {'LSF' => '-n 8 -C0 -M4000  -R"select[mem>4000]  rusage[mem=4000]" span[hosts=1]' },
+         '8Gb_8c_job'   => {'LSF' => '-n 8 -C0 -M8000  -R"select[mem>8000]  rusage[mem=8000]" span[hosts=1]' },
+         '16Gb_8c_job'  => {'LSF' => '-n 8 -C0 -M16000 -R"select[mem>16000] rusage[mem=16000] span[hosts=1]"' },
+         '32Gb_8c_job'  => {'LSF' => '-n 8 -C0 -M32000 -R"select[mem>32000] rusage[mem=32000] span[hosts=1]"' },
 
-        '16Gb_32c_job' => {'LSF' => '-q production-rh6 -n 32 -C0 -M16000 -R"select[mem>16000] rusage[mem=16000] span[hosts=1]"' },
-         '32Gb_32c_job' => {'LSF' => '-q production-rh6 -n 32 -C0 -M32000 -R"select[mem>32000] rusage[mem=32000] span[hosts=1]"' },
-         '16Gb_64c_job' => {'LSF' => '-q production-rh6 -n 64 -C0 -M16000 -R"select[mem>16000] rusage[mem=16000] span[hosts=1]"' },
-         '32Gb_64c_job' => {'LSF' => '-q production-rh6 -n 64 -C0 -M32000 -R"select[mem>32000] rusage[mem=32000] span[hosts=1]"' },
-         '256Gb_64c_job' => {'LSF' => '-q production-rh6 -n 64 -C0 -M256000 -R"select[mem>256000] rusage[mem=256000] span[hosts=1]"' },
+         '16Gb_16c_job' => {'LSF' => '-n 16 -C0 -M16000 -R"select[mem>16000] rusage[mem=16000] span[hosts=1]"' },
+         '32Gb_16c_job' => {'LSF' => '-n 16 -C0 -M16000 -R"select[mem>32000] rusage[mem=32000] span[hosts=1]"' },
+         '64Gb_16c_job' => {'LSF' => '-n 16 -C0 -M64000 -R"select[mem>64000] rusage[mem=64000] span[hosts=1]"' },
 
-         '8Gb_64c_mpi'  => {'LSF' => '-q mpi -n 64 -a openmpi -M8000 -R"select[mem>8000] rusage[mem=8000] same[model] span[ptile=16]"' },
-         '32Gb_64c_mpi' => {'LSF' => '-q mpi -n 64 -a openmpi -M32000 -R"select[mem>32000] rusage[mem=32000] same[model] span[ptile=16]"' },
+         '16Gb_32c_job' => {'LSF' => '-n 32 -C0 -M16000 -R"select[mem>16000] rusage[mem=16000] span[hosts=1]"' },
+         '32Gb_32c_job' => {'LSF' => '-n 32 -C0 -M32000 -R"select[mem>32000] rusage[mem=32000] span[hosts=1]"' },
 
-         '8Gb_8c_mpi'  => {'LSF' => '-q mpi -n 8 -M8000 -R"select[mem>8000] rusage[mem=8000] same[model] span[ptile=8]"' },
-         '8Gb_16c_mpi'  => {'LSF' => '-q mpi -n 16 -M8000 -R"select[mem>8000] rusage[mem=8000] same[model] span[ptile=16]"' },
-         '8Gb_24c_mpi'  => {'LSF' => '-q mpi -n 24 -M8000 -R"select[mem>8000] rusage[mem=8000] same[model] span[ptile=12]"' },
-         '8Gb_32c_mpi'  => {'LSF' => '-q mpi -n 32 -M8000 -R"select[mem>8000] rusage[mem=8000] same[model] span[ptile=16]"' },
+         '16Gb_64c_job' => {'LSF' => '-n 64 -C0 -M16000 -R"select[mem>16000] rusage[mem=16000] span[hosts=1]"' },
+         '32Gb_64c_job' => {'LSF' => '-n 64 -C0 -M32000 -R"select[mem>32000] rusage[mem=32000] span[hosts=1]"' },
+         '256Gb_64c_job' => {'LSF' => '-n 64 -C0 -M256000 -R"select[mem>256000] rusage[mem=256000] span[hosts=1]"' },
 
-         '32Gb_8c_mpi' => {'LSF' => '-q mpi -n 8 -M32000 -R"select[mem>32000] rusage[mem=32000] same[model] span[ptile=8]"' },
-         '32Gb_16c_mpi' => {'LSF' => '-q mpi -n 16 -M32000 -R"select[mem>32000] rusage[mem=32000] same[model] span[ptile=16]"' },
-         '32Gb_24c_mpi' => {'LSF' => '-q mpi -n 24 -M32000 -R"select[mem>32000] rusage[mem=32000] same[model] span[ptile=12]"' },
-         '32Gb_32c_mpi' => {'LSF' => '-q mpi -n 32 -M32000 -R"select[mem>32000] rusage[mem=32000] same[model] span[ptile=16]"' },
+         '8Gb_8c_mpi'   => {'LSF' => '-q mpi-rh7 -n 8  -M8000 -R"select[mem>8000] rusage[mem=8000] same[model] span[ptile=8]"' },
+         '8Gb_16c_mpi'  => {'LSF' => '-q mpi-rh7 -n 16 -M8000 -R"select[mem>8000] rusage[mem=8000] same[model] span[ptile=16]"' },
+         '8Gb_24c_mpi'  => {'LSF' => '-q mpi-rh7 -n 24 -M8000 -R"select[mem>8000] rusage[mem=8000] same[model] span[ptile=12]"' },
+         '8Gb_32c_mpi'  => {'LSF' => '-q mpi-rh7 -n 32 -M8000 -R"select[mem>8000] rusage[mem=8000] same[model] span[ptile=16]"' },
+         '8Gb_64c_mpi'  => {'LSF' => '-q mpi-rh7 -n 64 -M8000 -R"select[mem>8000] rusage[mem=8000] same[model] span[ptile=16]"' },
 
-
-         'msa'          => {'LSF' => '-C0 -q production-rh6 -M2000  -R"select[mem>2000]  rusage[mem=2000]"' },
-         'msa_himem'    => {'LSF' => '-C0 -q production-rh6 -M8000  -R"select[mem>8000]  rusage[mem=8000]"' },
-
-         'urgent_hcluster'      => {'LSF' => '-C0 -q production-rh6 -M32000 -R"select[mem>32000] rusage[mem=32000]"' },
-         '4Gb_job_gpfs' => {},
+         '32Gb_8c_mpi'  => {'LSF' => '-q mpi-rh7 -n 8  -M32000 -R"select[mem>32000] rusage[mem=32000] same[model] span[ptile=8]"' },
+         '32Gb_16c_mpi' => {'LSF' => '-q mpi-rh7 -n 16 -M32000 -R"select[mem>32000] rusage[mem=32000] same[model] span[ptile=16]"' },
+         '32Gb_24c_mpi' => {'LSF' => '-q mpi-rh7 -n 24 -M32000 -R"select[mem>32000] rusage[mem=32000] same[model] span[ptile=12]"' },
+         '32Gb_32c_mpi' => {'LSF' => '-q mpi-rh7 -n 32 -M32000 -R"select[mem>32000] rusage[mem=32000] same[model] span[ptile=16]"' },
+         '32Gb_64c_mpi' => {'LSF' => '-q mpi-rh7 -n 64 -M32000 -R"select[mem>32000] rusage[mem=32000] same[model] span[ptile=16]"' },
     };
 }
+
+sub tweak_analyses {
+    my $self = shift;
+    my $analyses_by_name = shift;
+
+    my %overriden_rc_names = (
+        'CAFE_table'                => '24Gb_job',
+    );
+    foreach my $logic_name (keys %overriden_rc_names) {
+        $analyses_by_name->{$logic_name}->{'-rc_name'} = $overriden_rc_names{$logic_name};
+    }
+    $analyses_by_name->{'CAFE_analysis'}->{'-parameters'}{'pvalue_lim'} = 1;
+}
+
 
 1;
 

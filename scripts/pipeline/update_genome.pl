@@ -330,11 +330,8 @@ sub update_genome_db {
   ## New genome or new assembly!!
   else {
 
-    $genome_db = Bio::EnsEMBL::Compara::GenomeDB->new(
-        -DB_ADAPTOR => $species_dba,
-
-        -TAXON_ID   => $taxon_id,
-    );
+    $genome_db = Bio::EnsEMBL::Compara::GenomeDB->new_from_DBAdaptor($species_dba);
+    $genome_db->taxon_id( $taxon_id ) if $taxon_id;
 
     if (!defined($genome_db->name)) {
       throw "Cannot find species.production_name in meta table for ".($species_dba->locator).".\n";
@@ -356,9 +353,6 @@ sub update_genome_db {
     }
 
     $genome_db_adaptor->store($genome_db);
-
-    my $common_name = $species_dba->get_MetaContainer->get_common_name();
-    printf("You can add a new 'ensembl alias name' entry in scripts/taxonomy/ensembl_aliases.sql to map the taxon_id %d to '%s'\n", $genome_db->taxon_id, $common_name) if $common_name;
 
   }
   $genome_db_adaptor->make_object_current($genome_db) if $release;

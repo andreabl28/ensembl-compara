@@ -3,17 +3,13 @@ language: "perl"
 perl:
   - "5.14"
   - "5.10"
+  - "5.24"
 
 env:
   - COVERALLS=true
   - COVERALLS=false
 
 sudo: false
-
-addons:
-  apt:
-    packages:
-    - unzip
 
 before_install:
     - git clone --branch master --depth 1 https://github.com/Ensembl/ensembl-test.git
@@ -59,4 +55,6 @@ matrix:
       env: COVERALLS=true
     - perl: "5.14"
       env: COVERALLS=false
+    - perl: "5.24"
+      env: COVERALLS=true
 

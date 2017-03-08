@@ -68,7 +68,9 @@ use warnings;
 use Bio::EnsEMBL::Compara::SeqMember;
 use Bio::EnsEMBL::Compara::GeneMember;
 
-use base ('Bio::EnsEMBL::Compara::RunnableDB::BaseRunnable');
+use Bio::EnsEMBL::Hive::DBSQL::DBConnection;
+
+use base ('Bio::EnsEMBL::Compara::RunnableDB::ncRNAtrees::GenomeStoreNCMembers');
 
 
 sub param_defaults {
@@ -83,6 +85,9 @@ sub param_defaults {
         'exclude_gene_analysis'         => undef,
 
         'coding_exons'                  => 0,   # switch between 'ProteinTree' mode and 'Mercator' mode
+        'store_coding'                  => 1,
+        'store_ncrna'                   => 1,
+        'store_exon_coordinates'        => 1,
 
             # only in 'ProteinTree' mode:
         'store_genes'                   => 1,   # whether the genes are also stored as members
@@ -118,6 +123,12 @@ sub fetch_input {
     unless($self->param('include_reference') or $self->param('include_nonreference')) {
         die "Either 'include_reference' or 'include_nonreference' or both have to be true";
     }
+
+    $self->_load_biotype_groups($self->param_required('production_db_url'));
+
+    my $dnafrag_adaptor = $self->compara_dba->get_DnaFragAdaptor;
+    my %all_dnafrags_by_name = map {$_->name => $_} @{ $dnafrag_adaptor->fetch_all_by_GenomeDB_region($genome_db) };
+    $self->param('all_dnafrags_by_name', \%all_dnafrags_by_name);
 }
 
 
@@ -174,10 +185,13 @@ sub loadMembersFromCoreSlices {
         }
     }
 
+    my $biotype_groups= $self->param('biotype_groups');
+
   #from core database, get all slices, and then all genes in slice
   #and then all transcripts in gene to store as members in compara
 
   my $dnafrag_adaptor = $self->compara_dba->get_DnaFragAdaptor;
+  my $all_dnafrags_by_name = $self->param('all_dnafrags_by_name');
   my $gene_adaptor;
 
   foreach my $slice (@$slices) {
@@ -189,7 +203,7 @@ sub loadMembersFromCoreSlices {
 
     $self->param('sliceCount', $self->param('sliceCount')+1 );
     #print("slice " . $slice->name . "\n");
-    my $dnafrag = $dnafrag_adaptor->fetch_by_GenomeDB_and_name($self->param('genome_db'), $slice->seq_region_name);
+    my $dnafrag = $all_dnafrags_by_name->{$slice->seq_region_name};
     unless ($dnafrag) {
         if ($self->param('store_missing_dnafrags')) {
             $dnafrag = Bio::EnsEMBL::Compara::DnaFrag->new_from_Slice($slice, $self->param('genome_db'));
@@ -229,23 +243,27 @@ sub loadMembersFromCoreSlices {
        } # foreach
        $self->store_all_coding_exons(\@genes, $dnafrag);
 
-      # LV and C are for the Ig/TcR family, which rearranges
-      # somatically so is considered as a different biotype in EnsEMBL
-      # D and J are very short or have no translation at all
     } else {
        foreach my $gene (@relevant_genes) {
-          if ( lc($gene->biotype) eq 'protein_coding'
-               || lc($gene->biotype) =~ /ig_._gene/
-               || lc($gene->biotype) =~ /tr_._gene/
-               || lc($gene->biotype) eq 'polymorphic_pseudogene'     # mm14 says it is ok :)
-               || lc($gene->biotype) eq 'lrg_gene'
-             ) {
-              $self->param('realGeneCount', $self->param('realGeneCount')+1 );
+          die "Unknown biotype ".$gene->biotype unless $biotype_groups->{$gene->biotype};
+
+          my $gene_member;
+
+          if ($self->param('store_coding') && (($biotype_groups->{$gene->biotype} eq 'coding') or ($biotype_groups->{$gene->biotype} eq 'LRG'))) {
+              $gene_member = $self->store_protein_coding_gene_and_all_transcripts($gene, $dnafrag);
               
-              $self->store_protein_coding_gene_and_all_transcripts($gene, $dnafrag);
-              
-              print STDERR $self->param('realGeneCount') , " genes stored\n" if ($self->debug && (0 == ($self->param('realGeneCount') % 100)));
+          } elsif ( $self->param('store_ncrna') && ($biotype_groups->{$gene->biotype} =~ /noncoding$/) ) {
+              $gene_member = $self->store_ncrna_gene($gene, $dnafrag);
+
+          } else {
+              # pseudogene, undefined, no_group
+              next;
           }
+
+          next unless $gene_member;
+
+          $self->param('realGeneCount', $self->param('realGeneCount')+1 );
+          print STDERR $self->param('realGeneCount') , " genes stored\n" if ($self->debug && (0 == ($self->param('realGeneCount') % 100)));
        } # foreach
     }
   }
@@ -335,6 +353,7 @@ sub store_protein_coding_gene_and_all_transcripts {
                     -GENE       => $gene,
                     -DNAFRAG    => $dnafrag,
                     -GENOME_DB  => $self->param('genome_db'),
+                    -BIOTYPE_GROUP => $self->param('biotype_groups')->{$gene->biotype},
                 );
                 print(" => gene_member " . $gene_member->stable_id) if($self->param('verbose'));
                 $gene_member_adaptor->store($gene_member);
@@ -355,8 +374,9 @@ sub store_protein_coding_gene_and_all_transcripts {
         if ($self->param('store_related_pep_sequences')) {
             $pep_member->_prepare_cds_sequence;
             $sequence_adaptor->store_other_sequence($pep_member, $pep_member->other_sequence('cds'), 'cds');
-            $pep_member->_prepare_exon_sequences;
-            $sequence_adaptor->store_other_sequence($pep_member, $pep_member->other_sequence('exon_bounded'), 'exon_bounded');
+        }
+        if ($self->param('store_exon_coordinates')) {
+            $self->store_exon_coordinates($transcript, $pep_member);
         }
 
         print(" : stored\n") if($self->param('verbose'));
@@ -381,6 +401,27 @@ sub store_protein_coding_gene_and_all_transcripts {
     }
 
     return $gene_member;
+}
+
+
+sub store_exon_coordinates {
+    my ($self, $transcript, $seq_member) = @_;
+
+    my $exon_list;
+    if    ( $seq_member->source_name =~ "PEP"   ) { $exon_list = $transcript->get_all_translateable_Exons }
+    elsif ( $seq_member->source_name =~ "TRANS" ) { $exon_list = $transcript->get_all_Exons }
+    return unless scalar(@$exon_list);
+    my $scale_factor = $seq_member->source_name =~ /PEP/ ? 3 : 1;
+    my @exons;
+    my $left_over = $exon_list->[0]->phase > 0 ? -$exon_list->[0]->phase : 0;
+    foreach my $exon (@$exon_list) {
+        my $exon_pep_len = POSIX::ceil(($exon->length - $left_over) / $scale_factor);
+        $left_over += $scale_factor*$exon_pep_len - $exon->length;
+        push @exons, [$exon->start, $exon->end, $exon_pep_len, $left_over];
+        die sprintf('Invalid phase: %s', $left_over) if (($left_over < 0) || ($left_over > 2));
+    }
+
+    $seq_member->adaptor->_store_exon_boundaries_for_SeqMember($seq_member, \@exons);
 }
 
 

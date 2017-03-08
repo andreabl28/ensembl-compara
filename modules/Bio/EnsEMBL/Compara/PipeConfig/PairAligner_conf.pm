@@ -83,17 +83,17 @@ sub default_options {
 	    'master_db' => 'mysql://ensro@compara1/mm14_ensembl_compara_master',
 
 	    'staging_loc1' => {
-            -host   => 'ens-staging1',
+            -host   => 'ens-staging3',
             -port   => 3306,
             -user   => 'ensro',
             -pass   => '',
         },
-        'staging_loc2' => {
-            -host   => 'ens-staging2',
-            -port   => 3306,
-            -user   => 'ensro',
-            -pass   => '',
-        },  
+        # 'staging_loc2' => {
+        #     -host   => 'ens-staging2',
+        #     -port   => 3306,
+        #     -user   => 'ensro',
+        #     -pass   => '',
+        # },  
 	    'livemirror_loc' => {
             -host   => 'ens-livemirror',
             -port   => 3306,
@@ -102,7 +102,7 @@ sub default_options {
 	        -db_version => 71,
         },
 
-        'curr_core_sources_locs'    => [ $self->o('staging_loc1'), $self->o('staging_loc2'), ],
+        'curr_core_sources_locs'    => [ $self->o('staging_loc1') ], # $self->o('staging_loc2'), ],
         #'curr_core_sources_locs'    => [ $self->o('livemirror_loc') ],
         'curr_core_dbs_locs'        => '', #if defining core dbs with config file. Define in Lastz_conf.pm or TBlat_conf.pm
 
@@ -135,12 +135,9 @@ sub default_options {
 	#directory to dump nib files
 	'dump_dir' => '/lustre/scratch109/ensembl/' . $ENV{USER} . '/pair_aligner/' . $self->o('pipeline_name') . '/' . $self->o('host') . '/',
 
-        #include MT chromosomes if set to 1 ie MT vs MT only else avoid any MT alignments if set to 0
-        'include_MT' => 1,
-	
-	#include only MT, in some cases we only want to align MT chromosomes (set to 1 for MT only and 0 for normal mode). 
-	#Also the name of the MT chromosome in the db must be the string "MT".    
-	'MT_only' => 0, # if MT_only is set to 1, then include_MT must also be set to 1
+        # Dnafrags to load and align
+        'only_cellular_component'   => undef,   # Do we load *all* the dnafrags or only the ones from a specific cellular-component ?
+        'mix_cellular_components'   => 0,       # Do we try to allow the nuclear genome vs MT, etc ?
 
         #min length to dump
         'dump_min_nib_size'         => 11500000,
@@ -205,7 +202,7 @@ sub default_options {
 	 #linear_gap=>medium for more closely related species, 'loose' for more distant
 	'linear_gap' => 'medium',
 
-  	'chain_parameters' => {'max_gap'=>'50','linear_gap'=> $self->o('linear_gap'), 'faToNib' => $self->o('faToNib_exe'), 'lavToAxt'=> $self->o('lavToAxt_exe'), 'axtChain'=>$self->o('axtChain_exe')}, 
+  	'chain_parameters' => {'max_gap'=>'50','linear_gap'=> $self->o('linear_gap'), 'faToNib' => $self->o('faToNib_exe'), 'lavToAxt'=> $self->o('lavToAxt_exe'), 'axtChain'=>$self->o('axtChain_exe'), 'max_blocks_for_chaining' => 100000},
     'chain_hive_capacity' => 200,
     'chain_batch_size' => 10,
 
@@ -331,10 +328,11 @@ sub pipeline_analyses {
 				  'program'        => $self->o('populate_new_database_exe'),
 				  'reg_conf'        => $self->o('reg_conf'),
 				  'mlss_id'        => $self->o('mlss_id'),
-                                  'collection'     => $self->o('collection'),
-                                  'master_db'      => $self->o('master_db'),
-                                  'pipeline_db'    => $self->pipeline_url(),
-                                  'MT_only'        => $self->o('MT_only'),
+                  'collection'     => $self->o('collection'),
+                  'master_db'      => $self->o('master_db'),
+                  'pipeline_db'    => $self->pipeline_url(),
+                  'only_cellular_component' => $self->o('only_cellular_component'),
+
 				 },
 	       -flow_into => {
 			      1 => [ 'parse_pair_aligner_conf' ],
@@ -385,7 +383,8 @@ sub pipeline_analyses {
  	    {  -logic_name => 'chunk_and_group_dna',
  	       -module     => 'Bio::EnsEMBL::Compara::RunnableDB::PairAligner::ChunkAndGroupDna',
  	       -parameters => {
-			       'MT_only' => $self->o('MT_only'),
+                               'only_cellular_component' => $self->o('only_cellular_component'),
+                               'mix_cellular_components' => $self->o('mix_cellular_components'),
 			      },
  	       -flow_into => {
  	          2 => [ 'store_sequence' ],
@@ -418,7 +417,7 @@ sub pipeline_analyses {
  	    {  -logic_name => 'create_pair_aligner_jobs',  #factory
  	       -module     => 'Bio::EnsEMBL::Compara::RunnableDB::PairAligner::CreatePairAlignerJobs',
  	       -parameters => { 
-                               'include_MT' => $self->o('include_MT'),
+                               'mix_cellular_components' => $self->o('mix_cellular_components'),
                               },
 	       -hive_capacity => 10,
  	       -wait_for => [ 'store_sequence', 'store_sequence_again', 'chunk_and_group_dna'  ],
@@ -459,18 +458,9 @@ sub pipeline_analyses {
                 },
  	       -wait_for =>  [ $self->o('pair_aligner_logic_name'), $self->o('pair_aligner_logic_name') . "_himem1" ],
 	       -flow_into => {
-			      1 => [ 'check_not_too_many_blocks' ],
+			      1 => [ 'update_max_alignment_length_before_FD' ],
 			     },
 	    },
-            {   -logic_name => 'check_not_too_many_blocks',
-                -module     => 'Bio::EnsEMBL::Hive::RunnableDB::SqlHealthcheck',
-                -parameters => {
-                    'description'   => q{filter_duplicates / axtChain won't work if there are too many blocks},
-                    'query'         => 'SELECT COUNT(*) AS cnt FROM genomic_align_block WHERE method_link_species_set_id = #method_link_species_set_id# GROUP BY 1+1 HAVING cnt > #max_blocks#',
-                    'max_blocks'    => 10000000,
-                },
-                -flow_into  => [ 'update_max_alignment_length_before_FD' ],
-            },
  	    {  -logic_name => 'update_max_alignment_length_before_FD',
  	       -module     => 'Bio::EnsEMBL::Compara::RunnableDB::GenomicAlignBlock::UpdateMaxAlignmentLength',
  	       -parameters => { 
@@ -484,7 +474,7 @@ sub pipeline_analyses {
  	    {  -logic_name => 'create_filter_duplicates_jobs', #factory
  	       -module     => 'Bio::EnsEMBL::Compara::RunnableDB::PairAligner::CreateFilterDuplicatesJobs',
  	       -parameters => { },
- 	       -wait_for =>  [ 'update_max_alignment_length_before_FD', 'check_not_too_many_blocks' ],
+ 	       -wait_for =>  [ 'update_max_alignment_length_before_FD' ],
 	        -flow_into => {
 			       2 => { 'filter_duplicates' => INPUT_PLUS() },
 			     },
@@ -528,7 +518,8 @@ sub pipeline_analyses {
  	    {  -logic_name => 'no_chunk_and_group_dna',
  	       -module     => 'Bio::EnsEMBL::Compara::RunnableDB::PairAligner::ChunkAndGroupDna',
  	       -parameters => {
-			       'MT_only' => $self->o('MT_only'),
+                               'only_cellular_component' => $self->o('only_cellular_component'),
+                               'mix_cellular_components' => $self->o('mix_cellular_components'),
 			       'flow_chunksets' => 0,
 			      },
 	       -flow_into => {
@@ -540,9 +531,7 @@ sub pipeline_analyses {
  	    {  -logic_name => 'dump_large_nib_for_chains_factory',
  	       -module     => 'Bio::EnsEMBL::Compara::RunnableDB::PairAligner::DumpDnaCollectionFactory',
  	       -parameters => {
-			       'faToNib_exe' => $self->o('faToNib_exe'),
 			       'dump_min_size' => $self->o('dump_min_nib_size'),
-                               'MT_only' => $self->o('MT_only'),
 			      },
 	       -hive_capacity => 1,
 	       -flow_into => {

@@ -77,7 +77,11 @@ sub fetch_input {
     $self->throw('No valid HMM library found at ' . $self->param('library_path')) unless ($hmmLibrary->exists());
     $self->param('hmmLibrary', $hmmLibrary);
 
-    $self->param('query_set', Bio::EnsEMBL::Compara::MemberSet->new(-members => $self->get_queries));
+    my $members_to_query = $self->get_queries;
+    unless (scalar(@$members_to_query)) {
+        $self->complete_early('No members to query. They seem to all have an entry in hmm_annot !');
+    }
+    $self->param('query_set', Bio::EnsEMBL::Compara::MemberSet->new(-members => $members_to_query));
     $self->param('all_hmm_annots', {});
 }
 
@@ -156,7 +160,7 @@ sub run_HMM_search {
     my $library_path      = $hmmLibrary->libDir();
 
     my $worker_temp_directory = $self->worker_temp_directory;
-    my $cmd = "PATH=\$PATH:$blast_bin_dir:$hmmer_path; PERL5LIB=\$PERL5LIB:$pantherScore_path/lib; $pantherScore_exe -l $library_path -i $fastafile -D I -b $blast_bin_dir -T $worker_temp_directory -V";
+    my $cmd = "PATH=$blast_bin_dir:$hmmer_path:\$PATH; PERL5LIB=$pantherScore_path/lib:\$PERL5LIB; $pantherScore_exe -l $library_path -i $fastafile -D I -b $blast_bin_dir -T $worker_temp_directory -V";
     my $cmd_out = $self->run_command($cmd);
 
     # Detection of failures

@@ -53,13 +53,15 @@ sub object_class {
 sub _ids_string {
 
     my $genome_dbs = shift;
-    my @genome_db_ids;
+    my %genome_db_ids;
     foreach my $genome_db (@{$genome_dbs}) {
         if (looks_like_number($genome_db)) {
-            push @genome_db_ids, $genome_db;
+            warning("GenomeDB $genome_db is selected multiple times !") if $genome_db_ids{$genome_db};
+            $genome_db_ids{$genome_db} = 1;
         } elsif($genome_db and $genome_db->isa("Bio::EnsEMBL::Compara::GenomeDB")) {
             if(my $genome_db_id = $genome_db->dbID) {
-                push @genome_db_ids, $genome_db_id;
+                warning("GenomeDB $genome_db_id is selected multiple times !") if $genome_db_ids{$genome_db_id};
+                $genome_db_ids{$genome_db_id} = 1;
             } else {
                 throw "[$genome_db] must have a dbID";
             }
@@ -68,7 +70,7 @@ sub _ids_string {
         }
     }
 
-    my @sorted_ids = sort {$a <=> $b} @genome_db_ids;
+    my @sorted_ids = sort {$a <=> $b} keys %genome_db_ids;
     my $string_ids = join ',', @sorted_ids;
     return $string_ids || '';
 }
@@ -81,7 +83,7 @@ sub _ids_string {
 sub _synchronise {
     my ($self, $species_set) = @_;
 
-    assert_ref($species_set, 'Bio::EnsEMBL::Compara::SpeciesSet', 'argument to _synchronise');
+    assert_ref($species_set, 'Bio::EnsEMBL::Compara::SpeciesSet', 'species_set');
 
     my $dbID        = $species_set->dbID;
     my $genome_dbs  = $species_set->genome_dbs;
@@ -371,7 +373,7 @@ sub fetch_all_by_name {
 sub fetch_all_by_GenomeDB {
     my ($self, $genome_db) = @_;
 
-    assert_ref($genome_db, 'Bio::EnsEMBL::Compara::GenomeDB');
+    assert_ref($genome_db, 'Bio::EnsEMBL::Compara::GenomeDB', 'genome_db');
 
     my $genome_db_id = $genome_db->dbID or throw "[$genome_db] must have a dbID";
 

@@ -71,7 +71,7 @@ use warnings;
 
 use Bio::EnsEMBL::DBSQL::BaseAdaptor;
 use Bio::EnsEMBL::Compara::DnaFrag;
-use Bio::EnsEMBL::Utils::Exception qw( throw warning verbose );
+use Bio::EnsEMBL::Utils::Exception qw( throw warning deprecate );
 use Bio::EnsEMBL::Utils::Scalar qw(assert_ref);
 
 use Bio::EnsEMBL::Utils::Cache;
@@ -180,6 +180,7 @@ sub fetch_by_GenomeDB_and_name {
   Arg [2]    : (optional) string $coord_system_name
   Arg [3]    : (optional) string $name
   Arg [4]    : (optional) boolean $is_reference
+  Arg [5]    : (optional) string $cellular_component
   Example    : my $human_chr_dnafrags = $dnafrag_adaptor->
                    fetch_all_by_GenomeDB_region(
                      $human_genome_db, 'chromosome')
@@ -193,7 +194,7 @@ sub fetch_by_GenomeDB_and_name {
 =cut
 
 sub fetch_all_by_GenomeDB_region {
-  my ($self, $genome_db, $coord_system_name, $name, $is_reference) = @_;
+  my ($self, $genome_db, $coord_system_name, $name, $is_reference, $cellular_component) = @_;
 
   assert_ref($genome_db, 'Bio::EnsEMBL::Compara::GenomeDB', 'genome_db');
 
@@ -225,6 +226,11 @@ sub fetch_all_by_GenomeDB_region {
   if(defined $is_reference) {
     $sql .= ' AND df.is_reference = ?';
     $self->bind_param_generic_fetch($is_reference, SQL_INTEGER);
+  }
+
+  if(defined $cellular_component) {
+    $sql .= ' AND df.cellular_component = ?';
+    $self->bind_param_generic_fetch($cellular_component, SQL_VARCHAR);
   }
 
   return $self->generic_fetch($sql);
@@ -324,9 +330,25 @@ sub _columns {
           'df.name',
           'df.genome_db_id',
           'df.coord_system_name',
-          'df.is_reference'
+          'df.is_reference',
+          'df.cellular_component',
+          'df.codon_table_id',
           );
 }
+
+
+sub _unique_attributes {
+    return qw(
+        genome_db_id
+        name
+    )
+}
+
+
+sub object_class {
+    return 'Bio::EnsEMBL::Compara::DnaFrag';
+}
+
 
 =head2 _objs_from_sth
 
@@ -348,14 +370,16 @@ sub _objs_from_sth {
 
   my $these_dnafrags = [];
 
-  my ($dbID, $length, $name, $genome_db_id, $coord_system_name, $is_reference);
+  my ($dbID, $length, $name, $genome_db_id, $coord_system_name, $is_reference, $cellular_component, $codon_table_id);
   $sth->bind_columns(
           \$dbID,
           \$length,
           \$name,
           \$genome_db_id,
           \$coord_system_name,
-          \$is_reference
+          \$is_reference,
+          \$cellular_component,
+          \$codon_table_id,
       );
 
   my $gda = $self->db->get_GenomeDBAdaptor();
@@ -364,15 +388,17 @@ sub _objs_from_sth {
 
     my $this_dnafrag = $self->_id_cache->cache->{$dbID};
     if (not defined $this_dnafrag) {
-        $this_dnafrag = Bio::EnsEMBL::Compara::DnaFrag->new_fast(
-            {'dbID' => $dbID,
+        $this_dnafrag = Bio::EnsEMBL::Compara::DnaFrag->new_fast( {
+            'dbID' => $dbID,
             'adaptor' => $self,
             'length' => $length,
             'name' => $name,
             'genome_db_id' => $genome_db_id,
             'coord_system_name' => $coord_system_name,
-            'is_reference' => $is_reference}
-        );
+            'is_reference' => $is_reference,
+            '_cellular_component' => $cellular_component,
+            '_codon_table_id' => $codon_table_id,
+        } );
         $self->_id_cache->put($dbID, $this_dnafrag);
         my $cache_key = $genome_db_id . '//' . $name;
         $self->{'_lru_cache_gdb_id_name'}->{$cache_key} = $this_dnafrag;
@@ -440,10 +466,10 @@ sub store {
 
    my $sth = $self->prepare("
      INSERT IGNORE INTO dnafrag ( genome_db_id, coord_system_name,
-                                  name, length, is_reference )
-     VALUES (?,?,?,?,?)");
+                                  name, length, is_reference, cellular_component, codon_table_id )
+     VALUES (?,?,?,?,?,?,?)");
 
-   my $rows_inserted = $sth->execute($gid, $type, $name, $dnafrag->length, $dnafrag->is_reference);
+   my $rows_inserted = $sth->execute($gid, $type, $name, $dnafrag->length, $dnafrag->is_reference, $dnafrag->cellular_component, $dnafrag->codon_table_id);
    
    if ($rows_inserted > 0) {
      $stored_id = $self->dbc->db_handle->last_insert_id(undef, undef, 'dnafrag', 'dnafrag_id');
@@ -464,68 +490,19 @@ sub store {
    $dnafrag->adaptor($self);
    $dnafrag->dbID($stored_id);
 
+   my $cache_key = $gid. '//' . $name;
+   $self->{'_lru_cache_gdb_id_name'}->{$cache_key} = $dnafrag;
+
    return $dnafrag->dbID;
 }
 
-=head2 is_already_stored
 
- Title   : is_already_stored
- Usage   : $self->is_already_stored($dnafrag)
- Function: checks if already stored by querying database
- Example :
- Returns : $dnafrag->dbID if stored and 0 if not stored
- Args    : Bio::EnsEMBL::Compara::DnaFrag object
- Status  : Stable
-
-=cut
-
-sub is_already_stored {
+sub is_already_stored {     ## DEPRECATED
    my ($self,$dnafrag) = @_;
 
-   if( !defined $dnafrag ) {
-       $self->throw("Must have dnafrag object");
-   }
-
-   assert_ref($dnafrag, 'Bio::EnsEMBL::Compara::DnaFrag', 'dnafrag');
-
-   if (defined $dnafrag->adaptor() && $dnafrag->adaptor() == $self) {
-     return $dnafrag->dbID();
-   }
-   
-   my $gdb = $dnafrag->genome_db();
-
-   assert_ref($gdb, 'Bio::EnsEMBL::Compara::GenomeDB', 'gdb');
-
-   if( !defined $gdb->dbID ) {
-       $self->throw("genomedb must be stored (no dbID). Store genomedb first");
-   }
-
-   if( !defined $dnafrag->name ) {
-       $self->throw("dna frag must have a name");
-   }
-   
-   my $name = $dnafrag->name;
-   my $gid =  $gdb->dbID;
-   my $sth = $self->prepare("
-      SELECT dnafrag_id 
-        FROM dnafrag 
-       WHERE name= ?
-         AND genome_db_id= ?
-   ");
-
-   unless ($sth->execute( "$name", $gid )) {
-     $self->throw("Failed execution of a select query");
-   }
-
-   my ($dnafrag_id) = $sth->fetchrow_array();
-
-   if (defined $dnafrag_id) {
-     # $dnafrag already stored
-     $dnafrag->dbID($dnafrag_id);
-     $dnafrag->adaptor( $self );
-     return $dnafrag_id;
-   } 
-  return 0;
+   deprecate('DnaFragAdaptor::is_already_stored() is deprecated and will be removed in e91. Please use _synchronise() instead');
+   $self->_synchronise($dnafrag);
+   return $dnafrag->dbID;
 } 
    
 
@@ -548,7 +525,7 @@ sub store_if_needed {
 
    my ($self,$dnafrag) = @_;
 
-   $self->store($dnafrag) unless($self->is_already_stored($dnafrag));
+   $self->store($dnafrag) unless($self->_synchronise($dnafrag));
    return $dnafrag->dbID;
 }
 
@@ -571,6 +548,8 @@ sub update {
             'length'                => $dnafrag->length,
             'is_reference'          => $dnafrag->is_reference,
             'coord_system_name'     => $dnafrag->coord_system_name,
+            'codon_table_id'        => $dnafrag->codon_table_id,
+            'cellular_component'    => $dnafrag->cellular_component,
         }, {
             'dnafrag_id'            => $dnafrag->dbID()
         } );

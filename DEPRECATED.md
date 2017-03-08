@@ -21,20 +21,30 @@
 
 * `MethodLinkSpeciesSet::species_set_obj()`
 * `SequenceAdaptor::fetch_by_dbIDs()`
+* `SyntenyRegion::regions()`
 
-## Miscellaneous, to be removed in Ensembl 91
+## Taxonomy methods, to be removed in Ensembl 91
 
-* `MethodLinkSpeciesSet::get_common_classification()`
+* `NCBITaxon::ensembl_alias_name()`
+* `NCBITaxon::common_name()`
+
+## DnaFrag methods, to be removed in Ensembl 91
+
+* `DnaFrag::isMT()`
+* `DnaFrag::dna_type()`
+* `DnaFragAdaptor::is_already_stored()`
 
 ## \*MemberAdaptor methods, to be removed in Ensembl 91
 
 * `GeneMemberAdaptor::fetch_all_by_source_Iterator()`
-* `GeneMemberAdaptor::fetch_all_by_source_taxon()`
 * `GeneMemberAdaptor::fetch_all_Iterator()`
 * `SeqMemberAdaptor::fetch_all_by_source_Iterator()`
-* `SeqMemberAdaptor::fetch_all_by_source_taxon()`
 * `SeqMemberAdaptor::fetch_all_Iterator()`
 * `SeqMemberAdaptor::update_sequence()`
+
+## Miscellaneous, to be removed in Ensembl 91
+
+* `MethodLinkSpeciesSet::get_common_classification()`
 
 # Deprecated methods not yet scheduled for deletion
 

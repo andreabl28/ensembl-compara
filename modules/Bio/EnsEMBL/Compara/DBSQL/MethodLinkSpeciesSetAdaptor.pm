@@ -118,8 +118,8 @@ sub base_dir_location {
     my $self = shift;
     if (@_) {
         $self->{'_base_dir_location'} = shift;
-    } elsif (!$self->{'_base_dir_location'}) {
-        $self->_detect_location_on_platform;
+    } elsif (!defined $self->{'_base_dir_location'}) {
+        $self->base_dir_location($self->_detect_location_on_platform);
     }
     return $self->{'_base_dir_location'};
 }
@@ -148,6 +148,7 @@ sub _detect_location_on_platform {
     } else {
         die "Cannot establish a default location for files\n";
     }
+    return $data_dir;
 }
 
 
@@ -186,7 +187,7 @@ sub object_class {
 sub store {
   my ($self, $mlss, $store_components_first) = @_;
 
-  assert_ref($mlss, 'Bio::EnsEMBL::Compara::MethodLinkSpeciesSet');
+  assert_ref($mlss, 'Bio::EnsEMBL::Compara::MethodLinkSpeciesSet', 'mlss');
 
   #FIXME: $store_components_first should be used for the method as well
   my $method            = $mlss->method()           or die "No Method defined, cannot store\n";
@@ -440,7 +441,7 @@ sub fetch_all_by_method_link_type {
 sub fetch_all_by_GenomeDB {
     my ($self, $genome_db) = @_;
 
-    assert_ref($genome_db, 'Bio::EnsEMBL::Compara::GenomeDB');
+    assert_ref($genome_db, 'Bio::EnsEMBL::Compara::GenomeDB', 'genome_db');
 
     my $genome_db_id = $genome_db->dbID
         or throw "[$genome_db] must have a dbID";
@@ -467,7 +468,7 @@ sub fetch_all_by_GenomeDB {
 sub fetch_all_by_method_link_type_GenomeDB {
   my ($self, $method_link_type, $genome_db) = @_;
 
-  assert_ref($genome_db, 'Bio::EnsEMBL::Compara::GenomeDB');
+  assert_ref($genome_db, 'Bio::EnsEMBL::Compara::GenomeDB', 'genome_db');
   my $genome_db_id = $genome_db->dbID;
   throw "[$genome_db] must have a dbID" if (!$genome_db_id);
 
