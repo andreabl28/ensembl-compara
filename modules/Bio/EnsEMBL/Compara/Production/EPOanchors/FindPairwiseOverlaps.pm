@@ -148,6 +148,7 @@ sub run {
 		foreach my $mlss( @{ $self->param('mlss') } ){
 			my $gabs = $genomic_align_block_adaptor->fetch_all_by_MethodLinkSpeciesSet_Slice($mlss, $ref_sub_slice);
 			next unless(scalar(@$gabs));
+                        $self->param('compara_pairwise_dba')->dbc->disconnect_if_idle();
 			my %non_ref_dnafrags;
 			foreach my $gab(@$gabs){
 				my $rgab = $gab->restrict_between_reference_positions( @$coord_pair );
@@ -205,7 +206,6 @@ sub run {
 				dnafrag_end       => $coord_pair->[1],
 				dnafrag_strand    => $ref_sub_slice->strand,
 				} );	
-			push @$synteny_region_jobs, { 'synteny_region_id' => $synteny_region_id };
 		}
 	}
 	$self->param('synteny_region_jobs', $synteny_region_jobs);

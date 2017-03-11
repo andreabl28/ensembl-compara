@@ -122,6 +122,7 @@ sub fetch_input {
 
       #decide whether to use GenomicAlignTree object or species tree.
       my $mlss = $gab->method_link_species_set;
+      $self->param('mlss', $mlss);
       my $method_class = $mlss->method->class;
 
       my $tree_string;
@@ -150,8 +151,7 @@ sub fetch_input {
 	  #check still have enough species
 	  #print "NUM SPP $num_spp\n";
 	  if ($num_spp < 3) {
-	      $self->param('run_gerp', 0);
-	      return 1;
+              $self->complete_early('Less than 3 species in this block. Cannot run GERP. (have you asked to skip too many species ?)');
 	  }
 	  $tree_string = $gat->newick_format("simple");
           $tree_string=~s/:0;/;/; # Remove unused node at end
@@ -207,9 +207,8 @@ sub fetch_input {
 	  }
 	  close (PARAM_FILE_TMP);
       }
-      $self->param('run_gerp', 1);
   } else {
-      $self->param('run_gerp', 0);
+      $self->complete_early('Less than 3 sequences aligned in this block. Cannot run GERP');
   }
   return 1;
 }
@@ -227,10 +226,6 @@ sub fetch_input {
 sub run {
     my $self = shift;
 
-    #only run gerp if there are sufficient species present in the genomic align block
-    if (!$self->param('run_gerp')) {
-	return;
-    }
     $self->compara_dba->dbc->disconnect_if_idle();
     if ($self->param('program_version') == 1) { 
 	$self->run_gerp;
@@ -266,11 +261,6 @@ sub write_output {
 sub _write_output {
     my ($self) = @_;
   
-    #if haven't run gerp, don't try to store any results!
-    if (!$self->param('run_gerp')) { 
-	return 1;
-    }
-
     print STDERR "Write Output\n";
 
     #parse results and store constraints and conserved elements in database
@@ -405,7 +395,9 @@ sub run_gerp_v2 {
     #run gerpelem
     $command = $gerpelem_path;
 
-    $command .= " -f " . $self->param('mfa_file').$RATES_FILE_SUFFIX;# . " -d 0.35";# hack for birds
+    $command .= " -f " . $self->param('mfa_file').$RATES_FILE_SUFFIX;
+    # hack for birds
+    $command .= " -d 0.35" if $self->param('mlss')->name =~ /(sauropsid|bird)/i;
 
     #Calculate the neutral_rate of the species tree for use for those alignments where the default 
     #depth_threshold is too high to call any constrained elements (eg 3way birds)
